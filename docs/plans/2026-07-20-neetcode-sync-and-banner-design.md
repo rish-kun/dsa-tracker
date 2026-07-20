@@ -44,3 +44,28 @@ call the obsolete private endpoint.
   NeetCode content script for all NeetCode pages.
 - Confirm the built collector references `completed-problem-list` and no longer
   references `getCompletedProblems` or Firebase token storage.
+
+## Review links
+
+The solved-problems API will expose the earliest non-null solve-event URL as
+`sourceUrl`. This reuses the existing audit data instead of duplicating URLs in
+`solved_problems` or requiring a schema migration. NeetCode and LeetCode import
+events will now persist stable problem URLs instead of null.
+
+The dashboard will show an **Original** link when `sourceUrl` exists and a
+separate **LeetCode** link whenever `lcSlug` exists. Both remain visible even
+when they point to the same page, matching the requested distinction between
+solve origin and canonical LeetCode review.
+
+## Popup action for the active problem
+
+The popup will request the active problem context from the service worker. The
+service worker will ask the active tab's content script for a `SolveRequest`,
+then check the canonical key against the local solved cache. Each site content
+script will build this request with the same detection and canonicalization
+logic used by its banner.
+
+When a supported problem page is active, the popup will show its title and
+either **Mark current problem complete** or an already-tracked state. Marking
+uses the existing `MARK_SOLVED` path, including offline queuing and cache
+updates. Non-problem and unsupported pages will omit the control.
