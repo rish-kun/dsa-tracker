@@ -11,8 +11,21 @@ function getDb(): Db {
   if (!_db) {
     // Project-specific name first: a generic DATABASE_URL exported in the
     // user's shell profile (from another project) must never win over .env.
-    const url = process.env.DSA_TRACKER_DATABASE_URL || process.env.DATABASE_URL;
+    const url = (
+      process.env.DSA_TRACKER_DATABASE_URL || process.env.DATABASE_URL
+    )?.trim();
     if (!url) throw new Error('DSA_TRACKER_DATABASE_URL is not set');
+
+    if (/^(?:DSA_TRACKER_DATABASE_URL|DATABASE_URL)\s*=/i.test(url)) {
+      throw new Error(
+        'DSA_TRACKER_DATABASE_URL must contain only the PostgreSQL connection URI; remove the variable-name prefix from its value.',
+      );
+    }
+    if (!/^postgres(?:ql)?:\/\//i.test(url)) {
+      throw new Error(
+        'DSA_TRACKER_DATABASE_URL must be a PostgreSQL connection URI beginning with postgres:// or postgresql://.',
+      );
+    }
 
     if (process.env.VERCEL) {
       // Do not parse the full connection string with URL here: an unescaped

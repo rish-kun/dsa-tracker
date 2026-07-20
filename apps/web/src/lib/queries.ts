@@ -4,7 +4,7 @@ import type {
   SolvedProblem,
   Totals,
 } from '@dsa-tracker/shared';
-import { desc, eq, like, notLike, sql } from 'drizzle-orm';
+import { desc, eq, sql } from 'drizzle-orm';
 import { db, problems, solvedProblems, solveEvents } from '@/db';
 
 type SolvedRow = typeof solvedProblems.$inferSelect;
@@ -23,15 +23,17 @@ export function toSolvedProblem(row: SolvedRow): SolvedProblem {
 }
 
 export async function getTotals(): Promise<Totals> {
-  const [lc] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(solvedProblems)
-    .where(like(solvedProblems.canonicalKey, 'lc:%'));
-  const [other] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(solvedProblems)
-    .where(notLike(solvedProblems.canonicalKey, 'lc:%'));
-  return { lcUnique: lc.count, other: other.count };
+  const [totals] = await db
+    .select({
+      lcUnique: sql<number>`count(*) filter (
+        where ${solvedProblems.canonicalKey} like 'lc:%'
+      )::int`,
+      other: sql<number>`count(*) filter (
+        where ${solvedProblems.canonicalKey} not like 'lc:%'
+      )::int`,
+    })
+    .from(solvedProblems);
+  return totals ?? { lcUnique: 0, other: 0 };
 }
 
 export async function getSolved(key: string): Promise<SolvedProblem | null> {
