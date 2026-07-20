@@ -1,0 +1,13 @@
+{
+  "name": "dsa-tracker",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "dev:ext": "pnpm --filter extension dev",
+    "build": "pnpm -r build",
+    "db:generate": "pnpm --filter web db:generate",
+    "db:migrate": "pnpm --filter web db:migrate",
+    "db:seed": "pnpm --filter web db:seed"
+  },
+  "packageManager": "pnpm@11.7.0"
+}

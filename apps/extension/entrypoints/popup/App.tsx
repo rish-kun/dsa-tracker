@@ -1,0 +1,140 @@
+import { useEffect, useState } from 'react';
+import type { SolvedProblem, StatsResult } from '@dsa-tracker/shared';
+import { sendMessage } from '../../lib/messaging';
+
+function formatDate(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? ''
+    : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+export function App() {
+  const [data, setData] = useState<StatsResult | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [apiBase, setApiBase] = useState('');
+  const [savingBase, setSavingBase] = useState(false);
+  const [backfillMsg, setBackfillMsg] = useState<string | null>(null);
+  const [backfilling, setBackfilling] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    const res = await sendMessage({ type: 'GET_STATS' });
+    setData(res);
+    setApiBase(res.cache.apiBaseUrl);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  async function refresh() {
+    setBackfillMsg(null);
+    await load();
+  }
+
+  async function saveBase() {
+    setSavingBase(true);
+    const cache = await sendMessage({ type: 'SET_API_BASE', baseUrl: apiBase.trim() });
+    setApiBase(cache.apiBaseUrl);
+    setSavingBase(false);
+    await load();
+  }
+
+  async function openDashboard() {
+    const base = data?.cache.apiBaseUrl ?? apiBase;
+    if (base) await chrome.tabs.create({ url: base });
+  }
+
+  async function runBackfill() {
+    setBackfilling(true);
+    setBackfillMsg('Collecting solved problems from leetcode.com…');
+    const res = await sendMessage({ type: 'RUN_BACKFILL' });
+    setBackfilling(false);
+    if (!res.ok) {
+      setBackfillMsg(res.error ?? 'Backfill failed.');
+      return;
+    }
+    setBackfillMsg(
+      `Imported ${res.imported ?? 0} new, skipped ${res.skipped ?? 0} known. Unique total now ${res.totals?.lcUnique ?? 0}.`,
+    );
+    await load();
+  }
+
+  const totals = data?.stats?.totals ?? data?.cache.totals ?? { lcUnique: 0, other: 0 };
+  const recent: SolvedProblem[] = (data?.stats?.recent ?? data?.cache.solved ?? []).slice(0, 5);
+  const apiDown = data ? !data.ok : false;
+  const pending = data?.cache.pending ?? 0;
+
+  return (
+    <div className="app">
+      <header className="hdr">
+        <span className="logo">DSA Tracker</span>
+        <button className="ghost" onClick={refresh} disabled={loading}>
+          {loading ? '…' : 'Refresh'}
+        </button>
+      </header>
+
+      {apiDown && (
+        <div className="warn">
+          Backend unreachable — showing cached data.
+          {pending > 0 ? ` ${pending} write(s) queued.` : ''}
+        </div>
+      )}
+
+      <section className="counts">
+        <div className="count primary">
+          <span className="num">{totals.lcUnique}</span>
+          <span className="lbl">unique LeetCode</span>
+        </div>
+        <div className="count">
+          <span className="num small">{totals.other}</span>
+          <span className="lbl">other (non-LC)</span>
+        </div>
+      </section>
+
+      <section className="block">
+        <div className="block-title">Recent</div>
+        {recent.length === 0 ? (
+          <div className="empty">No solves yet.</div>
+        ) : (
+          <ul className="list">
+            {recent.map((s) => (
+              <li key={s.canonicalKey}>
+                <span className="item-title">{s.title}</span>
+                <span className="item-date">{formatDate(s.firstSolvedAt)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="block">
+        <button className="primary-btn" onClick={runBackfill} disabled={backfilling}>
+          {backfilling ? 'Syncing…' : 'Sync from LeetCode'}
+        </button>
+        {backfillMsg && <div className="note">{backfillMsg}</div>}
+      </section>
+
+      <section className="block">
+        <div className="block-title">API base URL</div>
+        <div className="row">
+          <input
+            className="input"
+            value={apiBase}
+            onChange={(e) => setApiBase(e.target.value)}
+            placeholder="http://localhost:3000"
+            spellCheck={false}
+          />
+          <button className="ghost" onClick={saveBase} disabled={savingBase}>
+            {savingBase ? '…' : 'Save'}
+          </button>
+        </div>
+        <button className="link" onClick={openDashboard}>
+          Open dashboard →
+        </button>
+      </section>
+    </div>
+  );
+}
