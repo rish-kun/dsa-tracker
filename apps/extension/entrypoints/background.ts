@@ -446,59 +446,144 @@ async function handleRunBackfill(): Promise<BackfillRunResult> {
 // ---------------------------------------------------------------------------
 
 /**
- * Injected (serialized) into a neetcode.io tab via chrome.scripting. NeetCode
- * stores completed problem ids in `completed-problem-list`, grouped by list or
- * course. Collect every group so the import reflects the user's full NeetCode
- * history. Must be fully self-contained — no references to outer scope.
+ * Injected (serialized) into a neetcode.io tab via chrome.scripting. Signed-in
+ * progress lives behind NeetCode's `getCompletedProblems` callable; the
+ * similarly-shaped localStorage value is only the signed-out fallback. Must be
+ * fully self-contained — no references to outer scope.
  */
 async function collectNcCompleted(): Promise<CollectResult> {
   try {
-    const raw = localStorage.getItem('completed-problem-list');
-    if (raw === null) {
-      return { error: 'No NeetCode progress data found in this browser.' };
-    }
-
-    let stored: unknown;
-    try {
-      stored = JSON.parse(raw) as unknown;
-    } catch {
-      return { error: 'NeetCode progress data is malformed and could not be read.' };
-    }
-    if (!stored || typeof stored !== 'object' || Array.isArray(stored)) {
-      return { error: 'NeetCode progress data has an unexpected format.' };
+    interface AuthRow {
+      fbase_key: string;
+      value?: {
+        apiKey?: string;
+        stsTokenManager?: {
+          accessToken?: string;
+          refreshToken?: string;
+          expirationTime?: number;
+        };
+      };
     }
 
     const ids = new Set<string>();
     const seen = new Set<object>();
-    let collectionCount = 0;
     const isValidId = (value: unknown): value is string =>
       typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9-]*$/.test(value);
     const walk = (value: unknown, depth = 0): void => {
       if (depth > 12) return;
+      if (isValidId(value)) {
+        ids.add(value);
+        return;
+      }
       if (!value || typeof value !== 'object' || seen.has(value)) return;
       seen.add(value);
 
       if (Array.isArray(value)) {
-        collectionCount += 1;
-        for (const item of value) {
-          if (isValidId(item)) ids.add(item);
-          else walk(item, depth + 1);
-        }
+        value.forEach((item) => walk(item, depth + 1));
         return;
       }
 
-      Object.values(value as Record<string, unknown>).forEach((child) =>
-        walk(child, depth + 1),
-      );
-    };
-    walk(stored);
-
-    if (ids.size === 0) {
-      if (collectionCount === 0 && Object.keys(stored as object).length > 0) {
-        return { error: 'NeetCode progress data has an unexpected format.' };
+      const record = value as Record<string, unknown>;
+      for (const field of ['data', 'result', 'completedProblems', 'problems']) {
+        if (field in record) walk(record[field], depth + 1);
       }
-      return { error: 'No completed problems found on your NeetCode account.' };
+      for (const child of Object.values(record)) {
+        if (Array.isArray(child)) walk(child, depth + 1);
+      }
+    };
+
+    const authRow = await new Promise<AuthRow | null>((resolve, reject) => {
+      const open = indexedDB.open('firebaseLocalStorageDb');
+      open.onerror = () => reject(new Error('Could not read the NeetCode login session.'));
+      open.onsuccess = () => {
+        try {
+          if (!open.result.objectStoreNames.contains('firebaseLocalStorage')) {
+            resolve(null);
+            return;
+          }
+          const tx = open.result.transaction('firebaseLocalStorage', 'readonly');
+          const all = tx.objectStore('firebaseLocalStorage').getAll();
+          all.onsuccess = () => {
+            const rows = (all.result ?? []) as AuthRow[];
+            resolve(
+              rows.find(
+                (row) =>
+                  typeof row?.fbase_key === 'string' &&
+                  row.fbase_key.startsWith('firebase:authUser:'),
+              ) ?? null,
+            );
+          };
+          all.onerror = () => reject(new Error('Could not read the NeetCode login session.'));
+        } catch (error) {
+          reject(error);
+        }
+      };
+    });
+
+    const tokenManager = authRow?.value?.stsTokenManager;
+    if (authRow && tokenManager) {
+      const apiKey =
+        authRow.fbase_key.match(/^firebase:authUser:([^:]+):/)?.[1] ??
+        authRow.value?.apiKey;
+      let token = tokenManager.accessToken ?? null;
+      const tokenIsStale =
+        !token ||
+        (typeof tokenManager.expirationTime === 'number' &&
+          tokenManager.expirationTime < Date.now() + 120_000);
+
+      if (tokenIsStale && tokenManager.refreshToken && apiKey) {
+        const refresh = await fetch(
+          `https://securetoken.googleapis.com/v1/token?key=${apiKey}`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/x-www-form-urlencoded' },
+            body: `grant_type=refresh_token&refresh_token=${encodeURIComponent(tokenManager.refreshToken)}`,
+          },
+        );
+        if (refresh.ok) {
+          const refreshed = (await refresh.json()) as {
+            access_token?: string;
+            id_token?: string;
+          };
+          token = refreshed.id_token ?? refreshed.access_token ?? token;
+        }
+      }
+
+      if (token) {
+        const response = await fetch('https://neetcode.io/api/callableFunctionHttp', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ data: { functionId: 'getCompletedProblems' } }),
+        });
+        if (response.status === 401 || response.status === 403) return { needLogin: true };
+        if (!response.ok) {
+          const detail = (await response.text()).trim().slice(0, 160);
+          return {
+            error: `NeetCode progress request failed (${response.status})${detail ? `: ${detail}` : ''}`,
+          };
+        }
+        walk((await response.json()) as unknown);
+      }
     }
+
+    // NeetCode uses this only for anonymous/local progress now, but importing
+    // it remains useful if the user has not signed in or the API returned none.
+    if (ids.size === 0) {
+      const raw = localStorage.getItem('completed-problem-list');
+      if (raw) {
+        try {
+          walk(JSON.parse(raw) as unknown);
+        } catch {
+          return { error: 'Local NeetCode progress is malformed and could not be read.' };
+        }
+      }
+    }
+
+    if (ids.size === 0 && !tokenManager) return { needLogin: true };
+    if (ids.size === 0) return { error: 'No completed problems found on your NeetCode account.' };
     return { slugs: [...ids] };
   } catch (e) {
     return { error: e instanceof Error ? e.message : 'collection failed' };
