@@ -467,12 +467,30 @@ async function collectNcCompleted(): Promise<CollectResult> {
 
     const ids = new Set<string>();
     const seen = new Set<object>();
-    const isValidId = (value: unknown): value is string =>
-      typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9-]*$/.test(value);
+    const isValidId = (value: string): boolean =>
+      /^[A-Za-z0-9][A-Za-z0-9-]*$/.test(value);
+    const normalizeId = (value: unknown): string | null => {
+      if (typeof value !== 'string') return null;
+      const trimmed = value.trim();
+      if (isValidId(trimmed)) return trimmed;
+
+      try {
+        const url = new URL(trimmed);
+        const hostname = url.hostname.toLowerCase().replace(/^www\./, '');
+        if (hostname !== 'leetcode.com' && hostname !== 'neetcode.io') return null;
+        const match = url.pathname.match(/^\/problems?\/([^/]+)\/?$/);
+        if (!match) return null;
+        const slug = decodeURIComponent(match[1]);
+        return isValidId(slug) ? slug : null;
+      } catch {
+        return null;
+      }
+    };
     const walk = (value: unknown, depth = 0): void => {
       if (depth > 12) return;
-      if (isValidId(value)) {
-        ids.add(value);
+      const normalized = normalizeId(value);
+      if (normalized) {
+        ids.add(normalized);
         return;
       }
       if (!value || typeof value !== 'object' || seen.has(value)) return;
