@@ -7,6 +7,16 @@ import { getTotals } from '@/lib/queries';
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
+  try {
+    return await handle(request);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : 'backfill failed';
+    console.error('[api/backfill]', e);
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+async function handle(request: NextRequest) {
   const body = (await request.json()) as BackfillRequest;
   if (!Array.isArray(body?.slugs)) {
     return NextResponse.json({ error: 'slugs array required' }, { status: 400 });

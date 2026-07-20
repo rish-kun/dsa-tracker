@@ -47,18 +47,18 @@ export function App() {
     if (base) await chrome.tabs.create({ url: base });
   }
 
-  async function runBackfill() {
+  async function runSync(type: 'RUN_BACKFILL' | 'RUN_NC_IMPORT') {
+    const site = type === 'RUN_BACKFILL' ? 'leetcode.com' : 'neetcode.io';
     setBackfilling(true);
-    setBackfillMsg('Collecting solved problems from leetcode.com…');
-    const res = await sendMessage({ type: 'RUN_BACKFILL' });
+    setBackfillMsg(`Collecting solved problems from ${site}…`);
+    const res = await sendMessage({ type });
     setBackfilling(false);
     if (!res.ok) {
-      setBackfillMsg(res.error ?? 'Backfill failed.');
+      setBackfillMsg(res.error ?? 'Sync failed.');
       return;
     }
-    setBackfillMsg(
-      `Imported ${res.imported ?? 0} new, skipped ${res.skipped ?? 0} known. Unique total now ${res.totals?.lcUnique ?? 0}.`,
-    );
+    const summary = `Imported ${res.imported ?? 0} new, skipped ${res.skipped ?? 0} known (${res.collected ?? 0} collected). Unique total now ${res.totals?.lcUnique ?? 0}.`;
+    setBackfillMsg(res.warning ? `${summary} ${res.warning}` : summary);
     await load();
   }
 
@@ -111,8 +111,19 @@ export function App() {
       </section>
 
       <section className="block">
-        <button className="primary-btn" onClick={runBackfill} disabled={backfilling}>
+        <button
+          className="primary-btn"
+          onClick={() => void runSync('RUN_BACKFILL')}
+          disabled={backfilling}
+        >
           {backfilling ? 'Syncing…' : 'Sync from LeetCode'}
+        </button>
+        <button
+          className="primary-btn secondary"
+          onClick={() => void runSync('RUN_NC_IMPORT')}
+          disabled={backfilling}
+        >
+          {backfilling ? 'Syncing…' : 'Sync from NeetCode'}
         </button>
         {backfillMsg && <div className="note">{backfillMsg}</div>}
       </section>

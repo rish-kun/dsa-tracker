@@ -1,0 +1,15 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "installCommand": "pnpm install --frozen-lockfile",
+  "buildCommand": "pnpm --filter web build",
+  "outputDirectory": "apps/web/.next",
+  "functions": {
+    "apps/web/app/api/backfill/route.ts": {
+      "maxDuration": 60
+    },
+    "apps/web/app/api/catalog/refresh/route.ts": {
+      "maxDuration": 60
+    }
+  }
+}

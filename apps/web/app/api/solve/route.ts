@@ -6,7 +6,8 @@ export const dynamic = 'force-dynamic';
 
 const SOURCES = new Set(['leetcode', 'neetcode', 'tuf', 'backfill']);
 const DETECTED = new Set(['auto', 'manual', 'backfill']);
-const KEY_RE = /^(lc|tuf|gfg):[a-z0-9][a-z0-9-]*$/;
+// nc: allows camelCase — NeetCode's own ids (e.g. `dynamicArray`) are not slugs.
+const KEY_RE = /^(lc|tuf|gfg):[a-z0-9][a-z0-9-]*$|^nc:[A-Za-z0-9][A-Za-z0-9-]*$/;
 
 export async function POST(request: NextRequest) {
   const body = (await request.json()) as SolveRequest;
@@ -20,8 +21,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'invalid solve request' }, { status: 400 });
   }
 
-  const { isNew, alreadySolved } = await recordSolve(body);
+  const { isNew, entry, alreadySolved } = await recordSolve(body);
   const totals = await getTotals();
-  const res: SolveResponse = { isNew, alreadySolved, totals };
+  const res: SolveResponse = { isNew, entry, alreadySolved, totals };
   return NextResponse.json(res);
 }

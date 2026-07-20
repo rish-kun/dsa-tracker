@@ -11,7 +11,6 @@ interface Detection {
 export default defineContentScript({
   matches: ['*://takeuforward.org/*'],
   runAt: 'document_idle',
-  cssInjectionMode: 'ui',
   async main(ctx: ContentScriptContext) {
     let banner: BannerHandle | null = null;
     let currentKey: string | null = null;

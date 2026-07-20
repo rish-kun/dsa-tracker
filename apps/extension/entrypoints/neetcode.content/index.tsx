@@ -6,14 +6,42 @@ import { sendMessage } from '../../lib/messaging';
 export default defineContentScript({
   matches: ['*://neetcode.io/problems/*'],
   runAt: 'document_idle',
-  cssInjectionMode: 'ui',
   async main(ctx: ContentScriptContext) {
     let banner: BannerHandle | null = null;
+    let checkRun = 0; // invalidates in-flight checks on route change
 
-    // NeetCode's /problems/<slug> is a 1:1 match with the LeetCode titleSlug.
+    // NeetCode editor slugs are NOT LeetCode titleSlugs (`duplicate-integer`
+    // is LC's `contains-duplicate`), so identity comes from the displayed
+    // problem title, resolved against the catalog. The URL slug is only a
+    // fallback namespace (`nc:`) for NeetCode-only problems.
     function currentSlug(): string | null {
       const m = location.pathname.match(/\/problems\/([^/?#]+)/);
       return m?.[1] ?? null;
+    }
+
+    function titleFromDom(): string | null {
+      // NeetCode keeps many modal headings in the DOM as h1 elements (for
+      // example "Editor Settings"), so only trust the problem-title marker.
+      const heading = document.querySelector('.problem-title');
+      const t = heading?.textContent?.trim();
+      if (t) return t;
+      // Only accept the problem-title form ("Contains Duplicate - NeetCode").
+      // The generic Angular shell title starts with "NeetCode | ..." and must
+      // not end the wait before the problem data renders.
+      const doc = document.title.match(/^(.+?)\s*[-|·]\s*NeetCode(?:\s.*)?$/i)?.[1]?.trim();
+      if (doc && !/^neetcode\b/i.test(doc)) return doc;
+      return null;
+    }
+
+    /** The page is an Angular SPA — the h1 can render well after idle. */
+    async function waitForTitle(run: number, timeoutMs = 10_000): Promise<string | null> {
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline && ctx.isValid && run === checkRun) {
+        const t = titleFromDom();
+        if (t) return t;
+        await new Promise((r) => setTimeout(r, 300));
+      }
+      return null;
     }
 
     async function removeBanner() {
@@ -27,16 +55,26 @@ export default defineContentScript({
     }
 
     async function check() {
+      const run = ++checkRun;
       const slug = currentSlug();
       if (!slug) return removeBanner();
-      const key = `lc:${slug}`;
 
-      // Resolve only for a nicer display title/difficulty — parity holds regardless.
-      const resolved = await sendMessage({ type: 'RESOLVE', slug });
-      const displayTitle =
-        resolved.problem?.title ?? slug.replace(/-/g, ' ');
+      const title = await waitForTitle(run);
+      if (run !== checkRun) return;
+
+      // Resolve identity: URL slug (in case it is a real LC slug), then title.
+      let resolved = await sendMessage({ type: 'RESOLVE', slug });
+      if (!resolved?.problem && title) {
+        resolved = await sendMessage({ type: 'RESOLVE', title });
+      }
+      if (run !== checkRun) return;
+
+      const problem = resolved?.problem ?? null;
+      const key = problem ? `lc:${problem.lcSlug}` : `nc:${slug}`;
+      const displayTitle = problem?.title ?? title ?? slug.replace(/-/g, ' ');
 
       const res = await sendMessage({ type: 'CHECK_PROBLEM', canonicalKey: key });
+      if (run !== checkRun || !res) return;
       const b = await ensureBanner();
 
       if (res.solved && res.entry) {
@@ -56,7 +94,7 @@ export default defineContentScript({
         b.update({ state: { kind: 'prompt', title: displayTitle, busy: true } });
         const payload: SolveRequest = {
           canonicalKey: key,
-          lcSlug: slug,
+          lcSlug: problem?.lcSlug,
           title: displayTitle,
           source: 'neetcode',
           url: location.href,

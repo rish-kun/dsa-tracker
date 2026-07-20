@@ -29,13 +29,15 @@ pnpm build            # outputs to .output/chrome-mv3/
 3. Click save / refresh in the popup — the counters should load (zeros at
    first).
 
-## 4. Import your LeetCode history (one time)
+## 4. Import your existing history (one time)
 
 1. Open [leetcode.com](https://leetcode.com) in a tab and make sure you're
    logged in.
 2. Open the popup → **Sync from LeetCode**.
 3. Wait for "Imported X" — your unique count now matches your LeetCode
    profile's solved number.
+4. If you use NeetCode, open [neetcode.io](https://neetcode.io), make sure
+   you're logged in, then use **Sync from NeetCode** in the popup.
 
 ## 5. Daily use
 
@@ -63,6 +65,8 @@ launches a dedicated Chrome profile with the extension pre-loaded.)
   not. Marks made while offline are queued and flushed automatically.
 - **"Open leetcode.com and log in first"** during sync — the backfill runs
   inside a leetcode.com tab using your session; log in and retry.
+- **"Open neetcode.io and log in first"** during sync — the import reads your
+  NeetCode session from a neetcode.io tab; log in there and retry.
 - **Nothing on a takeuforward page** — banners only activate on pages that look
   like problem pages (have a LeetCode link, a code editor, or a `/plus/`
   problem URL), not on articles.

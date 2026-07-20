@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import type { ContentScriptContext } from 'wxt/utils/content-script-context';
 import { createShadowRootUi } from 'wxt/utils/content-script-ui/shadow-root';
@@ -140,7 +139,11 @@ export async function createBanner(
   ctx: ContentScriptContext,
   initial: BannerView,
 ): Promise<BannerHandle> {
-  let setView: ((v: BannerView) => void) | null = null;
+  // Render imperatively from a stored view: a useState setter captured during
+  // the first render isn't assigned until React commits (async), which
+  // silently drops any update() sent right after mount.
+  let current: BannerView = initial;
+  let root: ReactDOM.Root | null = null;
 
   const ui = await createShadowRootUi<ReactDOM.Root>(ctx, {
     name: 'dsa-tracker-banner',
@@ -148,17 +151,13 @@ export async function createBanner(
     alignment: 'bottom-right',
     zIndex: 2147483647,
     onMount(container) {
-      const root = ReactDOM.createRoot(container);
-      function Host() {
-        const [view, set] = useState<BannerView>(initial);
-        setView = set;
-        return <Card view={view} />;
-      }
-      root.render(<Host />);
+      root = ReactDOM.createRoot(container);
+      root.render(<Card view={current} />);
       return root;
     },
-    onRemove(root) {
-      root?.unmount();
+    onRemove(r) {
+      r?.unmount();
+      root = null;
     },
   });
 
@@ -166,7 +165,8 @@ export async function createBanner(
 
   return {
     update(view: BannerView) {
-      setView?.(view);
+      current = view;
+      root?.render(<Card view={current} />);
     },
     remove() {
       ui.remove();

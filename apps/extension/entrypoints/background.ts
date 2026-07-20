@@ -4,6 +4,8 @@ import type {
   CachedState,
   CheckProblemResponse,
   ExtMessage,
+  ImportRequest,
+  ImportResponse,
   ResolveResponse,
   SolveRequest,
   SolveResponse,
@@ -91,10 +93,27 @@ async function enqueuePending(payload: SolveRequest): Promise<void> {
 // API helpers
 // ---------------------------------------------------------------------------
 
+/** Build an error carrying the server's message, not just the status code. */
+async function httpError(method: string, path: string, res: Response): Promise<Error> {
+  let detail = '';
+  try {
+    const text = await res.text();
+    try {
+      detail = (JSON.parse(text) as { error?: string }).error ?? '';
+    } catch {
+      detail = text;
+    }
+  } catch {
+    // body unavailable
+  }
+  detail = detail.trim().slice(0, 200);
+  return new Error(`${method} ${path} -> ${res.status}${detail ? `: ${detail}` : ''}`);
+}
+
 async function apiGet<T>(path: string): Promise<T> {
   const base = await getApiBase();
   const res = await fetch(`${base}${path}`, { method: 'GET' });
-  if (!res.ok) throw new Error(`GET ${path} -> ${res.status}`);
+  if (!res.ok) throw await httpError('GET', path, res);
   return (await res.json()) as T;
 }
 
@@ -105,7 +124,7 @@ async function apiPost<T>(path: string, body: unknown): Promise<T> {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`POST ${path} -> ${res.status}`);
+  if (!res.ok) throw await httpError('POST', path, res);
   return (await res.json()) as T;
 }
 
@@ -168,16 +187,23 @@ async function applySolveToCache(
 ): Promise<void> {
   const cache = await readCache();
   cache.totals = res.totals;
-  if (!cache.keys.includes(payload.canonicalKey)) {
-    cache.keys.push(payload.canonicalKey);
-    cache.solved.unshift({
-      canonicalKey: payload.canonicalKey,
-      lcSlug: payload.lcSlug ?? null,
-      title: payload.title,
-      difficulty: null,
-      firstSource: payload.source,
-      firstSolvedAt: new Date().toISOString(),
-    });
+  const entry = res.entry;
+  if (entry) {
+    // Drop a client-side nc: alias when the server upgraded it to lc:.
+    cache.keys = cache.keys.filter(
+      (key) => key !== payload.canonicalKey || key === entry.canonicalKey,
+    );
+    cache.solved = cache.solved.filter(
+      (solved) =>
+        solved.canonicalKey !== payload.canonicalKey ||
+        solved.canonicalKey === entry.canonicalKey,
+    );
+    if (!cache.keys.includes(entry.canonicalKey)) cache.keys.push(entry.canonicalKey);
+    const existingIndex = cache.solved.findIndex(
+      (solved) => solved.canonicalKey === entry.canonicalKey,
+    );
+    if (existingIndex >= 0) cache.solved[existingIndex] = entry;
+    else cache.solved.unshift(entry);
   }
   await writeCache(cache);
 }
@@ -214,6 +240,7 @@ async function handleMarkSolved(payload: SolveRequest): Promise<MarkSolvedResult
     const entry = cache.solved.find((s) => s.canonicalKey === payload.canonicalKey) ?? null;
     return {
       isNew: !cache.keys.includes(payload.canonicalKey),
+      entry,
       alreadySolved: entry,
       totals: cache.totals,
       queued: true,
@@ -266,7 +293,7 @@ async function handleGetStats(): Promise<StatsResult> {
 }
 
 // ---------------------------------------------------------------------------
-// backfill: run inside a leetcode.com tab so session cookies apply
+// LeetCode backfill: run inside a leetcode.com tab so session cookies apply
 // ---------------------------------------------------------------------------
 
 interface CollectResult {
@@ -337,15 +364,15 @@ async function waitForTabComplete(tabId: number, timeoutMs = 15000): Promise<voi
   }
 }
 
-/** Find an existing leetcode.com tab or create one. We use chrome.scripting on
- * this tab (not messaging a content script) because our content script only
- * matches /problems/* — a plain leetcode.com tab has no content script, but
- * executeScript can inject into any leetcode page where host permission holds. */
-async function ensureLeetCodeTab(): Promise<chrome.tabs.Tab | null> {
-  const tabs = await chrome.tabs.query({ url: '*://leetcode.com/*' });
+/** Find an existing tab on a site or create one. We use chrome.scripting on
+ * this tab (not messaging a content script) because collectors must run with
+ * the site's first-party session — executeScript can inject into any page
+ * where host permission holds, content script or not. */
+async function ensureSiteTab(pattern: string, createUrl: string): Promise<chrome.tabs.Tab | null> {
+  const tabs = await chrome.tabs.query({ url: pattern });
   let tab = tabs.find((t) => t.status === 'complete') ?? tabs[0];
   if (!tab) {
-    tab = await chrome.tabs.create({ url: 'https://leetcode.com/', active: false });
+    tab = await chrome.tabs.create({ url: createUrl, active: false });
   }
   if (tab.id === undefined) return null;
   await waitForTabComplete(tab.id);
@@ -354,26 +381,33 @@ async function ensureLeetCodeTab(): Promise<chrome.tabs.Tab | null> {
 
 async function handleRunBackfill(): Promise<BackfillRunResult> {
   try {
-    const tab = await ensureLeetCodeTab();
+    const tab = await ensureSiteTab('*://leetcode.com/*', 'https://leetcode.com/');
     if (!tab || tab.id === undefined) {
-      return { ok: false, error: 'Could not open a leetcode.com tab.' };
+      return { ok: false, cacheSynced: false, error: 'Could not open a leetcode.com tab.' };
     }
     const [inj] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: collectAcSlugs,
     });
     const result = inj?.result as CollectResult | undefined;
-    if (!result) return { ok: false, error: 'No response from leetcode.com.' };
-    if (result.needLogin) {
-      return { ok: false, error: 'Open leetcode.com and log in first.' };
+    if (!result) {
+      return { ok: false, cacheSynced: false, error: 'No response from leetcode.com.' };
     }
-    if (result.error) return { ok: false, error: result.error };
+    if (result.needLogin) {
+      return { ok: false, cacheSynced: false, error: 'Open leetcode.com and log in first.' };
+    }
+    if (result.error) return { ok: false, cacheSynced: false, error: result.error };
     const slugs = result.slugs ?? [];
     const res = await apiPost<BackfillResponse>('/api/backfill', { slugs });
     apiOk = true;
-    await syncCache();
+    const cache = await syncCache();
+    const cacheSynced = cache.apiOk;
     return {
       ok: true,
+      cacheSynced,
+      warning: cacheSynced
+        ? undefined
+        : 'Import succeeded, but the local solved-problem cache could not be refreshed.',
       imported: res.imported,
       skipped: res.skipped,
       totals: res.totals,
@@ -381,7 +415,226 @@ async function handleRunBackfill(): Promise<BackfillRunResult> {
     };
   } catch (e) {
     apiOk = false;
-    return { ok: false, error: e instanceof Error ? e.message : 'Backfill failed.' };
+    return {
+      ok: false,
+      cacheSynced: false,
+      error: e instanceof Error ? e.message : 'Backfill failed.',
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// NeetCode import: run inside a neetcode.io tab so the Firebase session applies
+// ---------------------------------------------------------------------------
+
+/**
+ * Injected (serialized) into a neetcode.io tab via chrome.scripting. Reads the
+ * Firebase auth session the site persists in IndexedDB, refreshes the ID token
+ * if stale, then calls NeetCode's own `getCompletedProblems` callable — the
+ * same request the site makes to render its checkmarks. Must be fully
+ * self-contained — no references to outer scope.
+ */
+async function collectNcCompleted(): Promise<CollectResult> {
+  try {
+    interface AuthRow {
+      fbase_key: string;
+      value?: {
+        apiKey?: string;
+        stsTokenManager?: {
+          accessToken?: string;
+          refreshToken?: string;
+          expirationTime?: number;
+        };
+      };
+    }
+
+    const authRow = await new Promise<AuthRow | null>((resolve, reject) => {
+      const open = indexedDB.open('firebaseLocalStorageDb');
+      open.onerror = () => reject(new Error('Could not read the NeetCode session.'));
+      open.onsuccess = () => {
+        try {
+          const tx = open.result.transaction('firebaseLocalStorage', 'readonly');
+          const all = tx.objectStore('firebaseLocalStorage').getAll();
+          all.onsuccess = () => {
+            const rows = (all.result ?? []) as AuthRow[];
+            resolve(
+              rows.find(
+                (r) =>
+                  typeof r?.fbase_key === 'string' &&
+                  r.fbase_key.startsWith('firebase:authUser:'),
+              ) ?? null,
+            );
+          };
+          all.onerror = () => reject(new Error('Could not read the NeetCode session.'));
+        } catch (e) {
+          reject(e);
+        }
+      };
+    });
+
+    const stm = authRow?.value?.stsTokenManager;
+    if (!authRow || !stm) return { needLogin: true };
+
+    const apiKey =
+      authRow.fbase_key.match(/^firebase:authUser:([^:]+):/)?.[1] ?? authRow.value?.apiKey;
+    let token = stm.accessToken ?? null;
+    const stale =
+      !token ||
+      (typeof stm.expirationTime === 'number' && stm.expirationTime < Date.now() + 120_000);
+    if (stale && stm.refreshToken && apiKey) {
+      const r = await fetch(`https://securetoken.googleapis.com/v1/token?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: `grant_type=refresh_token&refresh_token=${encodeURIComponent(stm.refreshToken)}`,
+      });
+      if (r.ok) {
+        const j = (await r.json()) as { access_token?: string; id_token?: string };
+        token = j.id_token ?? j.access_token ?? token;
+      }
+    }
+    if (!token) return { needLogin: true };
+
+    const res = await fetch('https://neetcode.io/api/callableFunctionHttp', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ data: { functionId: 'getCompletedProblems' } }),
+    });
+    if (res.status === 401 || res.status === 403) return { needLogin: true };
+    if (!res.ok) return { error: `NeetCode API -> ${res.status}` };
+    const json = (await res.json()) as unknown;
+
+    // Normalize the callable's response into validated problem ids. NeetCode
+    // has returned arrays, id records, keyed completion maps, and nested
+    // data/result wrappers at different times.
+    const ids = new Set<string>();
+    const idFields = new Set(['id', 'problemId', 'slug']);
+    const containerFields = new Set([
+      'data',
+      'result',
+      'results',
+      'completed',
+      'completedProblems',
+      'problems',
+      'problemIds',
+      'ids',
+      'items',
+      'payload',
+      'response',
+      'value',
+    ]);
+    const nonIdFields = new Set([
+      ...idFields,
+      ...containerFields,
+      'success',
+      'status',
+      'error',
+      'message',
+      'name',
+      'title',
+      'difficulty',
+      'category',
+      'isCompleted',
+      'order',
+      'index',
+      'count',
+      'total',
+      'type',
+    ]);
+    const seen = new Set<object>();
+    const isValidId = (value: unknown): value is string =>
+      typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9-]*$/.test(value);
+    const addId = (value: unknown) => {
+      if (isValidId(value)) ids.add(value);
+    };
+    const walk = (value: unknown, depth = 0): void => {
+      if (depth > 12) return;
+      if (typeof value === 'string') {
+        addId(value);
+        return;
+      }
+      if (!value || typeof value !== 'object' || seen.has(value)) return;
+      seen.add(value);
+
+      if (Array.isArray(value)) {
+        value.forEach((item) => walk(item, depth + 1));
+        return;
+      }
+
+      const record = value as Record<string, unknown>;
+      const hasExplicitId = [...idFields].some((field) => isValidId(record[field]));
+      for (const field of idFields) addId(record[field]);
+
+      for (const [key, child] of Object.entries(record)) {
+        if (containerFields.has(key)) {
+          walk(child, depth + 1);
+          continue;
+        }
+        if (nonIdFields.has(key)) continue;
+
+        if (child && typeof child === 'object') {
+          walk(child, depth + 1);
+        } else if (!hasExplicitId && Boolean(child)) {
+          // A truthy scalar value denotes completion in an id-keyed map.
+          // Add the key, never the scalar state itself.
+          addId(key);
+        }
+      }
+    };
+    walk(json);
+
+    if (ids.size === 0) {
+      return { error: 'No completed problems found on your NeetCode account.' };
+    }
+    return { slugs: [...ids] };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'collection failed' };
+  }
+}
+
+async function handleRunNcImport(): Promise<BackfillRunResult> {
+  try {
+    const tab = await ensureSiteTab('*://neetcode.io/*', 'https://neetcode.io/practice');
+    if (!tab || tab.id === undefined) {
+      return { ok: false, cacheSynced: false, error: 'Could not open a neetcode.io tab.' };
+    }
+    const [inj] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: collectNcCompleted,
+    });
+    const result = inj?.result as CollectResult | undefined;
+    if (!result) {
+      return { ok: false, cacheSynced: false, error: 'No response from neetcode.io.' };
+    }
+    if (result.needLogin) {
+      return { ok: false, cacheSynced: false, error: 'Open neetcode.io and log in first.' };
+    }
+    if (result.error) return { ok: false, cacheSynced: false, error: result.error };
+    const ids = result.slugs ?? [];
+    const res = await apiPost<ImportResponse>('/api/import', { ids } satisfies ImportRequest);
+    apiOk = true;
+    const cache = await syncCache();
+    const cacheSynced = cache.apiOk;
+    return {
+      ok: true,
+      cacheSynced,
+      warning: cacheSynced
+        ? undefined
+        : 'Import succeeded, but the local solved-problem cache could not be refreshed.',
+      imported: res.imported,
+      skipped: res.skipped,
+      totals: res.totals,
+      collected: ids.length,
+    };
+  } catch (e) {
+    apiOk = false;
+    return {
+      ok: false,
+      cacheSynced: false,
+      error: e instanceof Error ? e.message : 'NeetCode import failed.',
+    };
   }
 }
 
@@ -412,6 +665,8 @@ function route(msg: ExtMessage): Promise<unknown> | undefined {
         .then(() => syncCache());
     case 'RUN_BACKFILL':
       return handleRunBackfill();
+    case 'RUN_NC_IMPORT':
+      return handleRunNcImport();
     case 'ROUTE_CHANGED':
       return undefined;
   }

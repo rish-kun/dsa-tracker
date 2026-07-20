@@ -9,9 +9,17 @@ export type Difficulty = 'Easy' | 'Medium' | 'Hard';
 /**
  * Canonical dedup key.
  * - `lc:<titleSlug>` — LeetCode-mapped problems (counts toward the main unique total)
- * - `tuf:<slug>` / `gfg:<slug>` — problems with no LeetCode equivalent (separate counter)
+ * - `tuf:<slug>` / `gfg:<slug>` / `nc:<slug>` — problems with no LeetCode
+ *   equivalent (separate counter). `nc:` is a NeetCode-only problem (their
+ *   editor slugs are NOT LeetCode titleSlugs — e.g. `duplicate-integer` is
+ *   LeetCode's `contains-duplicate`). The server upgrades every catalog match
+ *   to `lc:`; only genuinely unmappable problems remain under `nc:`.
  */
-export type CanonicalKey = `lc:${string}` | `tuf:${string}` | `gfg:${string}`;
+export type CanonicalKey =
+  | `lc:${string}`
+  | `tuf:${string}`
+  | `gfg:${string}`
+  | `nc:${string}`;
 
 export function lcKey(slug: string): CanonicalKey {
   return `lc:${slug}`;
@@ -51,6 +59,8 @@ export interface SolveRequest {
 /** POST /api/solve response. */
 export interface SolveResponse {
   isNew: boolean;
+  /** Final server-authoritative entry after canonicalization/alias merging. */
+  entry: SolvedProblem | null;
   alreadySolved: SolvedProblem | null;
   totals: Totals;
 }
@@ -83,6 +93,24 @@ export interface ResolveResponse {
   problem: Problem | null;
 }
 
+/**
+ * POST /api/import request body: problem ids collected from NeetCode
+ * (`getCompletedProblems`). Ids may be LeetCode titleSlugs (practice-list
+ * problems) or NeetCode editor slugs — the server resolves each to an `lc:`
+ * key when possible and falls back to `nc:`.
+ */
+export interface ImportRequest {
+  ids: string[];
+}
+
+export interface ImportResponse {
+  imported: number;
+  skipped: number;
+  /** Ids that could not be mapped to a LeetCode problem (imported as `nc:`). */
+  unmapped: string[];
+  totals: Totals;
+}
+
 /** GET /api/stats response. */
 export interface StatsResponse {
   totals: Totals;
@@ -105,7 +133,8 @@ export type ExtMessage =
   | { type: 'GET_CACHE' }
   | { type: 'REFRESH_CACHE' }
   | { type: 'SET_API_BASE'; baseUrl: string }
-  | { type: 'RUN_BACKFILL' };
+  | { type: 'RUN_BACKFILL' }
+  | { type: 'RUN_NC_IMPORT' };
 
 export interface CheckProblemResponse {
   solved: boolean;
@@ -132,13 +161,17 @@ export interface StatsResult {
   cache: CachedState;
 }
 
-/** Result of the popup-triggered LeetCode backfill run. */
+/** Result of the popup-triggered LeetCode backfill / NeetCode import runs. */
 export interface BackfillRunResult {
   ok: boolean;
+  /** Whether the local solved-problem cache was refreshed after the run. */
+  cacheSynced: boolean;
   error?: string;
+  /** Non-fatal issue, such as import success followed by a failed cache refresh. */
+  warning?: string;
   imported?: number;
   skipped?: number;
   totals?: Totals;
-  /** Total AC problems collected from LeetCode. */
+  /** Total problems collected from the source site. */
   collected?: number;
 }

@@ -11,12 +11,13 @@ you've already solved shows an in-page banner.
 - `packages/shared` — TypeScript types shared by both
 
 **How counting works:** every problem gets a canonical key — `lc:<slug>` when it
-maps to a LeetCode problem (NeetCode slugs are identical to LeetCode's; Striver
-rows link to LeetCode), or `tuf:<slug>`/`gfg:<slug>` for the minority of A2Z
-problems with no LeetCode equivalent. The main counter is unique `lc:` keys;
-non-LC problems get their own smaller counter. On leetcode.com an **Accepted
-submission is auto-detected**; on neetcode.io and takeuforward.org the extension
-shows a **"Mark as completed?"** prompt.
+maps to a LeetCode problem, or a site-specific key such as `nc:<id>`,
+`tuf:<slug>`, or `gfg:<slug>` when no LeetCode equivalent can be resolved. The
+server resolves NeetCode IDs and titles against the LeetCode catalog and merges
+older `nc:` aliases into the canonical `lc:` entry. The main counter is unique
+`lc:` keys; non-LC problems get their own smaller counter. On leetcode.com an
+**Accepted submission is auto-detected**; on neetcode.io and takeuforward.org
+the extension shows a **"Mark as completed?"** prompt.
 
 ## Setup
 
@@ -43,7 +44,9 @@ pnpm dev          # http://localhost:3000
 ```
 
 Deploy: import the repo in [Vercel](https://vercel.com), set the root directory
-to `apps/web`, add the `DSA_TRACKER_DATABASE_URL` env var. Re-run the catalog import against
+to `apps/web`, and add `DSA_TRACKER_DATABASE_URL` using the same transaction
+pooler URI (shared pooler hostname, port `6543`). The direct `db.<ref>.supabase.co`
+endpoint is intentionally rejected on Vercel. Re-run the catalog import against
 production any time with `POST https://<your-app>.vercel.app/api/catalog/refresh`.
 
 ### 3. Extension (Chrome / Helium)

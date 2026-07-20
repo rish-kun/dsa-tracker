@@ -27,6 +27,7 @@ interface ResponseMap {
   REFRESH_CACHE: CachedState;
   SET_API_BASE: CachedState;
   RUN_BACKFILL: BackfillRunResult;
+  RUN_NC_IMPORT: BackfillRunResult;
 }
 
 /** Typed wrapper around chrome.runtime.sendMessage. */
