@@ -70,6 +70,27 @@ body {
 .block {
   margin-bottom: 14px;
 }
+.current-problem {
+  margin-bottom: 14px;
+  padding: 11px;
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  border-radius: 10px;
+  background: rgba(59, 130, 246, 0.08);
+}
+.current-title {
+  color: #f3f4f6;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.current-status {
+  margin-top: 7px;
+  color: #4ade80;
+  font-size: 12px;
+  font-weight: 600;
+}
+.current-btn {
+  margin-top: 9px;
+}
 .block-title {
   font-size: 11px;
   text-transform: uppercase;

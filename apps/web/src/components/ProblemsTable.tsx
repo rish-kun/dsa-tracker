@@ -116,20 +116,26 @@ export function ProblemsTable({ rows }: { rows: SolvedProblem[] }) {
             </thead>
             <tbody>
               {filtered.map(({ row, number, title }) => {
-                const href = row.lcSlug ? lcUrl(row.lcSlug) : null;
+                const leetcodeHref = row.lcSlug ? lcUrl(row.lcSlug) : null;
                 return (
                   <tr key={row.canonicalKey}>
                     <td className="cell-number">
                       {number ? `#${number}` : <span className="chip chip-unknown">non-LC</span>}
                     </td>
-                    <td>
-                      {href ? (
-                        <a href={href} target="_blank" rel="noreferrer" className="cell-title-link">
-                          {title}
-                        </a>
-                      ) : (
-                        title
-                      )}
+                    <td className="cell-problem">
+                      <span className="cell-title">{title}</span>
+                      <span className="review-links">
+                        {row.sourceUrl && (
+                          <a href={row.sourceUrl} target="_blank" rel="noreferrer">
+                            Original ↗
+                          </a>
+                        )}
+                        {leetcodeHref && (
+                          <a href={leetcodeHref} target="_blank" rel="noreferrer">
+                            LeetCode ↗
+                          </a>
+                        )}
+                      </span>
                     </td>
                     <td>
                       <DifficultyChip difficulty={row.difficulty} />

@@ -4,14 +4,14 @@ import type {
   SolvedProblem,
   Totals,
 } from '@dsa-tracker/shared';
-import { desc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import { db, problems, solvedProblems, solveEvents } from '@/db';
 
 type SolvedRow = typeof solvedProblems.$inferSelect;
 type ProblemRow = typeof problems.$inferSelect;
 type DbExecutor = Pick<typeof db, 'select' | 'insert' | 'update' | 'delete'>;
 
-export function toSolvedProblem(row: SolvedRow): SolvedProblem {
+export function toSolvedProblem(row: SolvedRow, sourceUrl: string | null = null): SolvedProblem {
   return {
     canonicalKey: row.canonicalKey,
     lcSlug: row.lcSlug,
@@ -19,7 +19,56 @@ export function toSolvedProblem(row: SolvedRow): SolvedProblem {
     difficulty: (row.difficulty as Difficulty) ?? null,
     firstSource: row.firstSource as SolvedProblem['firstSource'],
     firstSolvedAt: row.firstSolvedAt.toISOString(),
+    sourceUrl,
   };
+}
+
+async function attachSourceUrls(rows: SolvedRow[]): Promise<SolvedProblem[]> {
+  if (rows.length === 0) return [];
+  const firstUrlByKey = new Map<string, string>();
+  const firstSourceUrlByKey = new Map<string, string>();
+  const firstSourceByKey = new Map(rows.map((row) => [row.canonicalKey, row.firstSource]));
+  const keys = rows.map((row) => row.canonicalKey);
+  const chunkSize = 500;
+
+  for (let i = 0; i < keys.length; i += chunkSize) {
+    const events = await db
+      .select({
+        canonicalKey: solveEvents.canonicalKey,
+        source: solveEvents.source,
+        url: solveEvents.url,
+      })
+      .from(solveEvents)
+      .where(
+        and(
+          inArray(solveEvents.canonicalKey, keys.slice(i, i + chunkSize)),
+          isNotNull(solveEvents.url),
+        ),
+      )
+      .orderBy(asc(solveEvents.createdAt), asc(solveEvents.id));
+
+    for (const event of events) {
+      if (event.url && !firstUrlByKey.has(event.canonicalKey)) {
+        firstUrlByKey.set(event.canonicalKey, event.url);
+      }
+      if (
+        event.url &&
+        event.source === firstSourceByKey.get(event.canonicalKey) &&
+        !firstSourceUrlByKey.has(event.canonicalKey)
+      ) {
+        firstSourceUrlByKey.set(event.canonicalKey, event.url);
+      }
+    }
+  }
+
+  return rows.map((row) =>
+    toSolvedProblem(
+      row,
+      firstSourceUrlByKey.get(row.canonicalKey) ??
+        firstUrlByKey.get(row.canonicalKey) ??
+        null,
+    ),
+  );
 }
 
 export async function getTotals(): Promise<Totals> {
@@ -42,7 +91,8 @@ export async function getSolved(key: string): Promise<SolvedProblem | null> {
     .from(solvedProblems)
     .where(eq(solvedProblems.canonicalKey, key))
     .limit(1);
-  return rows[0] ? toSolvedProblem(rows[0]) : null;
+  const [result] = await attachSourceUrls(rows);
+  return result ?? null;
 }
 
 function normalizeTitle(title: string): string {
@@ -222,7 +272,20 @@ export async function recordSolve(req: SolveRequest): Promise<{
           .limit(1);
     if (!row) throw new Error(`failed to record ${canonicalKey}`);
 
-    const entry = toSolvedProblem(row);
+    const [sourceEvent] = await tx
+      .select({ url: solveEvents.url })
+      .from(solveEvents)
+      .where(
+        and(
+          eq(solveEvents.canonicalKey, canonicalKey),
+          eq(solveEvents.source, row.firstSource),
+          isNotNull(solveEvents.url),
+        ),
+      )
+      .orderBy(asc(solveEvents.createdAt), asc(solveEvents.id))
+      .limit(1);
+
+    const entry = toSolvedProblem(row, sourceEvent?.url ?? null);
     const isNew = inserted.length > 0 && !mergedAlias;
     return {
       isNew,
@@ -237,7 +300,7 @@ export async function getAllSolved(): Promise<SolvedProblem[]> {
     .select()
     .from(solvedProblems)
     .orderBy(desc(solvedProblems.firstSolvedAt));
-  return rows.map(toSolvedProblem);
+  return attachSourceUrls(rows);
 }
 
 export async function getRecent(limit: number): Promise<SolvedProblem[]> {
@@ -246,5 +309,5 @@ export async function getRecent(limit: number): Promise<SolvedProblem[]> {
     .from(solvedProblems)
     .orderBy(desc(solvedProblems.firstSolvedAt))
     .limit(limit);
-  return rows.map(toSolvedProblem);
+  return attachSourceUrls(rows);
 }

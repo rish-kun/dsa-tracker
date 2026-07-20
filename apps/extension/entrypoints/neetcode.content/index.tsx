@@ -1,10 +1,12 @@
-import type { SolveRequest } from '@dsa-tracker/shared';
+import type { PageProblemMessage, SolveRequest } from '@dsa-tracker/shared';
 import type { ContentScriptContext } from 'wxt/utils/content-script-context';
 import { createBanner, type BannerHandle } from '../../components/Banner';
 import { sendMessage } from '../../lib/messaging';
 
 export default defineContentScript({
-  matches: ['*://neetcode.io/problems/*'],
+  // Register on the whole site so this script already exists when NeetCode's
+  // SPA moves from /practice/* to /problems/* without loading a new document.
+  matches: ['*://neetcode.io/*'],
   runAt: 'document_idle',
   async main(ctx: ContentScriptContext) {
     let banner: BannerHandle | null = null;
@@ -31,6 +33,26 @@ export default defineContentScript({
       const doc = document.title.match(/^(.+?)\s*[-|·]\s*NeetCode(?:\s.*)?$/i)?.[1]?.trim();
       if (doc && !/^neetcode\b/i.test(doc)) return doc;
       return null;
+    }
+
+    async function buildSolveRequest(
+      slug: string,
+      title: string | null,
+    ): Promise<SolveRequest> {
+      let resolved = await sendMessage({ type: 'RESOLVE', slug });
+      if (!resolved?.problem && title) {
+        resolved = await sendMessage({ type: 'RESOLVE', title });
+      }
+      const problem = resolved?.problem ?? null;
+      const displayTitle = problem?.title ?? title ?? slug.replace(/-/g, ' ');
+      return {
+        canonicalKey: problem ? `lc:${problem.lcSlug}` : `nc:${slug}`,
+        lcSlug: problem?.lcSlug,
+        title: displayTitle,
+        source: 'neetcode',
+        url: location.href,
+        detected: 'manual',
+      };
     }
 
     /** The page is an Angular SPA — the h1 can render well after idle. */
@@ -62,16 +84,11 @@ export default defineContentScript({
       const title = await waitForTitle(run);
       if (run !== checkRun) return;
 
-      // Resolve identity: URL slug (in case it is a real LC slug), then title.
-      let resolved = await sendMessage({ type: 'RESOLVE', slug });
-      if (!resolved?.problem && title) {
-        resolved = await sendMessage({ type: 'RESOLVE', title });
-      }
+      const payload = await buildSolveRequest(slug, title);
       if (run !== checkRun) return;
 
-      const problem = resolved?.problem ?? null;
-      const key = problem ? `lc:${problem.lcSlug}` : `nc:${slug}`;
-      const displayTitle = problem?.title ?? title ?? slug.replace(/-/g, ' ');
+      const key = payload.canonicalKey;
+      const displayTitle = payload.title;
 
       const res = await sendMessage({ type: 'CHECK_PROBLEM', canonicalKey: key });
       if (run !== checkRun || !res) return;
@@ -92,14 +109,6 @@ export default defineContentScript({
 
       const mark = async () => {
         b.update({ state: { kind: 'prompt', title: displayTitle, busy: true } });
-        const payload: SolveRequest = {
-          canonicalKey: key,
-          lcSlug: problem?.lcSlug,
-          title: displayTitle,
-          source: 'neetcode',
-          url: location.href,
-          detected: 'manual',
-        };
         const r = await sendMessage({ type: 'MARK_SOLVED', payload });
         if (r.queued) {
           b.update({ state: { kind: 'queued' }, onClose: () => removeBanner() });
@@ -131,11 +140,23 @@ export default defineContentScript({
     }
 
     // Angular SPA: react to history changes (via background) and popstate.
-    chrome.runtime.onMessage.addListener((msg) => {
+    chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+      if ((msg as PageProblemMessage)?.type === 'GET_PAGE_PROBLEM') {
+        const slug = currentSlug();
+        if (!slug) {
+          sendResponse(null);
+          return false;
+        }
+        void buildSolveRequest(slug, titleFromDom()).then(sendResponse).catch(() =>
+          sendResponse(null),
+        );
+        return true;
+      }
       if (msg?.type === 'ROUTE_CHANGED') {
         void removeBanner();
         scheduleCheck();
       }
+      return false;
     });
     window.addEventListener('popstate', () => {
       void removeBanner();

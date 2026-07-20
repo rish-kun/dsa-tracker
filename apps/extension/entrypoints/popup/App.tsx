@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { SolvedProblem, StatsResult } from '@dsa-tracker/shared';
+import type { ActiveProblemResult, SolvedProblem, StatsResult } from '@dsa-tracker/shared';
 import { sendMessage } from '../../lib/messaging';
 
 function formatDate(iso: string): string {
@@ -16,11 +16,18 @@ export function App() {
   const [savingBase, setSavingBase] = useState(false);
   const [backfillMsg, setBackfillMsg] = useState<string | null>(null);
   const [backfilling, setBackfilling] = useState(false);
+  const [activeProblem, setActiveProblem] = useState<ActiveProblemResult | null>(null);
+  const [markingCurrent, setMarkingCurrent] = useState(false);
+  const [currentMsg, setCurrentMsg] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
-    const res = await sendMessage({ type: 'GET_STATS' });
+    const [res, current] = await Promise.all([
+      sendMessage({ type: 'GET_STATS' }),
+      sendMessage({ type: 'GET_ACTIVE_PROBLEM' }),
+    ]);
     setData(res);
+    setActiveProblem(current);
     setApiBase(res.cache.apiBaseUrl);
     setLoading(false);
   }
@@ -62,6 +69,18 @@ export function App() {
     await load();
   }
 
+  async function markCurrentProblem() {
+    const payload = activeProblem?.payload;
+    if (!payload) return;
+    setMarkingCurrent(true);
+    setCurrentMsg(null);
+    const res = await sendMessage({ type: 'MARK_SOLVED', payload });
+    setMarkingCurrent(false);
+    setCurrentMsg(res.queued ? 'Saved locally — will sync automatically.' : 'Problem recorded.');
+    await load();
+    setActiveProblem({ payload, solved: true, entry: res.entry });
+  }
+
   const totals = data?.stats?.totals ?? data?.cache.totals ?? { lcUnique: 0, other: 0 };
   const recent: SolvedProblem[] = (data?.stats?.recent ?? data?.cache.solved ?? []).slice(0, 5);
   const apiDown = data ? !data.ok : false;
@@ -93,6 +112,27 @@ export function App() {
           <span className="lbl">other (non-LC)</span>
         </div>
       </section>
+
+      {activeProblem?.payload && (
+        <section className="current-problem">
+          <div className="block-title">Current problem</div>
+          <div className="current-title">
+            {activeProblem.entry?.title ?? activeProblem.payload.title}
+          </div>
+          {activeProblem.solved ? (
+            <div className="current-status">Already tracked ✓</div>
+          ) : (
+            <button
+              className="primary-btn current-btn"
+              onClick={() => void markCurrentProblem()}
+              disabled={markingCurrent}
+            >
+              {markingCurrent ? 'Saving…' : 'Mark current problem complete'}
+            </button>
+          )}
+          {currentMsg && <div className="note">{currentMsg}</div>}
+        </section>
+      )}
 
       <section className="block">
         <div className="block-title">Recent</div>

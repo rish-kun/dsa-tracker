@@ -1,4 +1,4 @@
-import type { SolveRequest } from '@dsa-tracker/shared';
+import type { PageProblemMessage, SolveRequest } from '@dsa-tracker/shared';
 import type { ContentScriptContext } from 'wxt/utils/content-script-context';
 import { createBanner, type BannerHandle } from '../../components/Banner';
 import { sendMessage } from '../../lib/messaging';
@@ -44,6 +44,19 @@ export default defineContentScript({
               .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
               .join(' '),
         url: isSubmittedRoute ? location.href : `https://leetcode.com/problems/${slug}/`,
+      };
+    }
+
+    function currentSolveRequest(): SolveRequest | null {
+      const problem = captureProblemContext();
+      if (!problem) return null;
+      return {
+        canonicalKey: `lc:${problem.slug}`,
+        lcSlug: problem.slug,
+        title: problem.title,
+        source: 'leetcode',
+        url: problem.url,
+        detected: 'manual',
       };
     }
 
@@ -184,11 +197,16 @@ export default defineContentScript({
       debounce = setTimeout(() => void check(), 300);
     }
 
-    chrome.runtime.onMessage.addListener((msg) => {
+    chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+      if ((msg as PageProblemMessage)?.type === 'GET_PAGE_PROBLEM') {
+        sendResponse(currentSolveRequest());
+        return false;
+      }
       if (msg?.type === 'ROUTE_CHANGED') {
         void removeBanner();
         scheduleCheck();
       }
+      return false;
     });
 
     scheduleCheck();

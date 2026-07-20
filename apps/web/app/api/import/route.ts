@@ -1,5 +1,5 @@
 import type { ImportRequest, ImportResponse } from '@dsa-tracker/shared';
-import { inArray, sql } from 'drizzle-orm';
+import { and, inArray, isNotNull, sql } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 import { db, problems, solvedProblems, solveEvents } from '@/db';
 import { getTotals, reconcileNeetcodeAlias } from '@/lib/queries';
@@ -121,6 +121,7 @@ async function handle(request: NextRequest) {
         title: `${row.lcNumber}. ${row.title}`,
         difficulty: row.difficulty,
         firstSource: 'neetcode',
+        sourceUrl: `https://neetcode.io/problems/${id}`,
       };
     }
     unmapped.push(id);
@@ -130,6 +131,7 @@ async function handle(request: NextRequest) {
       title: ncNames.get(id) ?? id,
       difficulty: null,
       firstSource: 'neetcode',
+      sourceUrl: `https://neetcode.io/problems/${id}`,
     };
   });
 
@@ -155,7 +157,9 @@ async function handle(request: NextRequest) {
     const chunk = rows.slice(i, i + CHUNK);
     const inserted = await db
       .insert(solvedProblems)
-      .values(chunk)
+      .values(
+        chunk.map(({ sourceUrl: _sourceUrl, ...row }) => row),
+      )
       .onConflictDoNothing()
       .returning({ key: solvedProblems.canonicalKey });
     imported += inserted.length;
@@ -164,11 +168,40 @@ async function handle(request: NextRequest) {
         inserted.map((r) => ({
           canonicalKey: r.key,
           source: 'neetcode',
-          url: null,
+          url: byKey.get(r.key)?.sourceUrl ?? null,
           detected: 'backfill',
         })),
       );
     }
+  }
+
+  // Older imports stored a null event URL. Backfill one stable NeetCode link
+  // per problem without adding repeat audit events on every sync.
+  const linkedKeys = new Set<string>();
+  const rowKeys = rows.map((row) => row.canonicalKey);
+  for (let i = 0; i < rowKeys.length; i += CHUNK) {
+    const linked = await db
+      .select({ key: solveEvents.canonicalKey })
+      .from(solveEvents)
+      .where(
+        and(
+          inArray(solveEvents.canonicalKey, rowKeys.slice(i, i + CHUNK)),
+          isNotNull(solveEvents.url),
+          sql`${solveEvents.source} = 'neetcode'`,
+        ),
+      );
+    linked.forEach(({ key }) => linkedKeys.add(key));
+  }
+  const missingLinks = rows.filter((row) => !linkedKeys.has(row.canonicalKey));
+  for (let i = 0; i < missingLinks.length; i += CHUNK) {
+    await db.insert(solveEvents).values(
+      missingLinks.slice(i, i + CHUNK).map((row) => ({
+        canonicalKey: row.canonicalKey,
+        source: 'neetcode',
+        url: row.sourceUrl,
+        detected: 'backfill',
+      })),
+    );
   }
 
   const totals = await getTotals();

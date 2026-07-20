@@ -1,5 +1,5 @@
 import type { BackfillRequest, BackfillResponse } from '@dsa-tracker/shared';
-import { inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 import { db, problems, solvedProblems, solveEvents } from '@/db';
 import { getTotals } from '@/lib/queries';
@@ -56,11 +56,40 @@ async function handle(request: NextRequest) {
         inserted.map((row) => ({
           canonicalKey: row.key,
           source: 'backfill',
-          url: null,
+          url: `https://leetcode.com/problems/${row.key.slice(3)}/`,
           detected: 'backfill',
         })),
       );
     }
+  }
+
+  // Repair links for rows imported by older extension versions, while
+  // avoiding duplicate events on repeat syncs.
+  const keys = slugs.map((slug) => `lc:${slug}`);
+  const linkedKeys = new Set<string>();
+  for (let i = 0; i < keys.length; i += CHUNK) {
+    const linked = await db
+      .select({ key: solveEvents.canonicalKey })
+      .from(solveEvents)
+      .where(
+        and(
+          inArray(solveEvents.canonicalKey, keys.slice(i, i + CHUNK)),
+          isNotNull(solveEvents.url),
+          eq(solveEvents.source, 'backfill'),
+        ),
+      );
+    linked.forEach(({ key }) => linkedKeys.add(key));
+  }
+  const missingLinks = keys.filter((key) => !linkedKeys.has(key));
+  for (let i = 0; i < missingLinks.length; i += CHUNK) {
+    await db.insert(solveEvents).values(
+      missingLinks.slice(i, i + CHUNK).map((key) => ({
+        canonicalKey: key,
+        source: 'backfill',
+        url: `https://leetcode.com/problems/${key.slice(3)}/`,
+        detected: 'backfill',
+      })),
+    );
   }
 
   const totals = await getTotals();

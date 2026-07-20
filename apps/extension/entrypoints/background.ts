@@ -1,4 +1,5 @@
 import type {
+  ActiveProblemResult,
   BackfillResponse,
   BackfillRunResult,
   CachedState,
@@ -6,6 +7,7 @@ import type {
   ExtMessage,
   ImportRequest,
   ImportResponse,
+  PageProblemMessage,
   ResolveResponse,
   SolveRequest,
   SolveResponse,
@@ -292,6 +294,22 @@ async function handleGetStats(): Promise<StatsResult> {
   }
 }
 
+async function handleGetActiveProblem(): Promise<ActiveProblemResult> {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (tab?.id === undefined) return { payload: null, solved: false, entry: null };
+
+  try {
+    const payload = (await chrome.tabs.sendMessage(tab.id, {
+      type: 'GET_PAGE_PROBLEM',
+    } satisfies PageProblemMessage)) as SolveRequest | null | undefined;
+    if (!payload) return { payload: null, solved: false, entry: null };
+    const status = await handleCheckProblem(payload.canonicalKey);
+    return { payload, ...status };
+  } catch {
+    return { payload: null, solved: false, entry: null };
+  }
+}
+
 // ---------------------------------------------------------------------------
 // LeetCode backfill: run inside a leetcode.com tab so session cookies apply
 // ---------------------------------------------------------------------------
@@ -428,164 +446,57 @@ async function handleRunBackfill(): Promise<BackfillRunResult> {
 // ---------------------------------------------------------------------------
 
 /**
- * Injected (serialized) into a neetcode.io tab via chrome.scripting. Reads the
- * Firebase auth session the site persists in IndexedDB, refreshes the ID token
- * if stale, then calls NeetCode's own `getCompletedProblems` callable — the
- * same request the site makes to render its checkmarks. Must be fully
- * self-contained — no references to outer scope.
+ * Injected (serialized) into a neetcode.io tab via chrome.scripting. NeetCode
+ * stores completed problem ids in `completed-problem-list`, grouped by list or
+ * course. Collect every group so the import reflects the user's full NeetCode
+ * history. Must be fully self-contained — no references to outer scope.
  */
 async function collectNcCompleted(): Promise<CollectResult> {
   try {
-    interface AuthRow {
-      fbase_key: string;
-      value?: {
-        apiKey?: string;
-        stsTokenManager?: {
-          accessToken?: string;
-          refreshToken?: string;
-          expirationTime?: number;
-        };
-      };
+    const raw = localStorage.getItem('completed-problem-list');
+    if (raw === null) {
+      return { error: 'No NeetCode progress data found in this browser.' };
     }
 
-    const authRow = await new Promise<AuthRow | null>((resolve, reject) => {
-      const open = indexedDB.open('firebaseLocalStorageDb');
-      open.onerror = () => reject(new Error('Could not read the NeetCode session.'));
-      open.onsuccess = () => {
-        try {
-          const tx = open.result.transaction('firebaseLocalStorage', 'readonly');
-          const all = tx.objectStore('firebaseLocalStorage').getAll();
-          all.onsuccess = () => {
-            const rows = (all.result ?? []) as AuthRow[];
-            resolve(
-              rows.find(
-                (r) =>
-                  typeof r?.fbase_key === 'string' &&
-                  r.fbase_key.startsWith('firebase:authUser:'),
-              ) ?? null,
-            );
-          };
-          all.onerror = () => reject(new Error('Could not read the NeetCode session.'));
-        } catch (e) {
-          reject(e);
-        }
-      };
-    });
-
-    const stm = authRow?.value?.stsTokenManager;
-    if (!authRow || !stm) return { needLogin: true };
-
-    const apiKey =
-      authRow.fbase_key.match(/^firebase:authUser:([^:]+):/)?.[1] ?? authRow.value?.apiKey;
-    let token = stm.accessToken ?? null;
-    const stale =
-      !token ||
-      (typeof stm.expirationTime === 'number' && stm.expirationTime < Date.now() + 120_000);
-    if (stale && stm.refreshToken && apiKey) {
-      const r = await fetch(`https://securetoken.googleapis.com/v1/token?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body: `grant_type=refresh_token&refresh_token=${encodeURIComponent(stm.refreshToken)}`,
-      });
-      if (r.ok) {
-        const j = (await r.json()) as { access_token?: string; id_token?: string };
-        token = j.id_token ?? j.access_token ?? token;
-      }
+    let stored: unknown;
+    try {
+      stored = JSON.parse(raw) as unknown;
+    } catch {
+      return { error: 'NeetCode progress data is malformed and could not be read.' };
     }
-    if (!token) return { needLogin: true };
+    if (!stored || typeof stored !== 'object' || Array.isArray(stored)) {
+      return { error: 'NeetCode progress data has an unexpected format.' };
+    }
 
-    const res = await fetch('https://neetcode.io/api/callableFunctionHttp', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ data: { functionId: 'getCompletedProblems' } }),
-    });
-    if (res.status === 401 || res.status === 403) return { needLogin: true };
-    if (!res.ok) return { error: `NeetCode API -> ${res.status}` };
-    const json = (await res.json()) as unknown;
-
-    // Normalize the callable's response into validated problem ids. NeetCode
-    // has returned arrays, id records, keyed completion maps, and nested
-    // data/result wrappers at different times.
     const ids = new Set<string>();
-    const idFields = new Set(['id', 'problemId', 'slug']);
-    const containerFields = new Set([
-      'data',
-      'result',
-      'results',
-      'completed',
-      'completedProblems',
-      'problems',
-      'problemIds',
-      'ids',
-      'items',
-      'payload',
-      'response',
-      'value',
-    ]);
-    const nonIdFields = new Set([
-      ...idFields,
-      ...containerFields,
-      'success',
-      'status',
-      'error',
-      'message',
-      'name',
-      'title',
-      'difficulty',
-      'category',
-      'isCompleted',
-      'order',
-      'index',
-      'count',
-      'total',
-      'type',
-    ]);
     const seen = new Set<object>();
+    let collectionCount = 0;
     const isValidId = (value: unknown): value is string =>
       typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9-]*$/.test(value);
-    const addId = (value: unknown) => {
-      if (isValidId(value)) ids.add(value);
-    };
     const walk = (value: unknown, depth = 0): void => {
       if (depth > 12) return;
-      if (typeof value === 'string') {
-        addId(value);
-        return;
-      }
       if (!value || typeof value !== 'object' || seen.has(value)) return;
       seen.add(value);
 
       if (Array.isArray(value)) {
-        value.forEach((item) => walk(item, depth + 1));
+        collectionCount += 1;
+        for (const item of value) {
+          if (isValidId(item)) ids.add(item);
+          else walk(item, depth + 1);
+        }
         return;
       }
 
-      const record = value as Record<string, unknown>;
-      const hasExplicitId = [...idFields].some((field) => isValidId(record[field]));
-      for (const field of idFields) addId(record[field]);
-
-      for (const [key, child] of Object.entries(record)) {
-        if (containerFields.has(key)) {
-          walk(child, depth + 1);
-          continue;
-        }
-        if (nonIdFields.has(key)) continue;
-
-        if (child && typeof child === 'object') {
-          walk(child, depth + 1);
-        } else if (!hasExplicitId && Boolean(child)) {
-          // A truthy scalar value denotes completion in an id-keyed map.
-          // Add the key, never the scalar state itself.
-          addId(key);
-        }
-      }
+      Object.values(value as Record<string, unknown>).forEach((child) =>
+        walk(child, depth + 1),
+      );
     };
-    walk(json);
+    walk(stored);
 
     if (ids.size === 0) {
+      if (collectionCount === 0 && Object.keys(stored as object).length > 0) {
+        return { error: 'NeetCode progress data has an unexpected format.' };
+      }
       return { error: 'No completed problems found on your NeetCode account.' };
     }
     return { slugs: [...ids] };
@@ -658,6 +569,8 @@ function route(msg: ExtMessage): Promise<unknown> | undefined {
       return buildCachedState();
     case 'REFRESH_CACHE':
       return syncCache();
+    case 'GET_ACTIVE_PROBLEM':
+      return handleGetActiveProblem();
     case 'SET_API_BASE':
       resolveCache.clear();
       return chrome.storage.local

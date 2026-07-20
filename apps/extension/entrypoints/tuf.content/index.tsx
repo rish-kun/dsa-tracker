@@ -1,4 +1,4 @@
-import type { CanonicalKey, SolveRequest } from '@dsa-tracker/shared';
+import type { CanonicalKey, PageProblemMessage, SolveRequest } from '@dsa-tracker/shared';
 import type { ContentScriptContext } from 'wxt/utils/content-script-context';
 import { createBanner, type BannerHandle } from '../../components/Banner';
 import { sendMessage } from '../../lib/messaging';
@@ -74,6 +74,18 @@ export default defineContentScript({
       return { key: `tuf:${slug}`, title: title || slug.replace(/-/g, ' ') };
     }
 
+    function buildSolveRequest(det: Detection): SolveRequest {
+      const isLc = det.key.startsWith('lc:');
+      return {
+        canonicalKey: det.key,
+        lcSlug: isLc ? det.key.slice(3) : undefined,
+        title: det.title,
+        source: 'tuf',
+        url: location.href,
+        detected: 'manual',
+      };
+    }
+
     async function removeBanner() {
       banner?.remove();
       banner = null;
@@ -115,14 +127,7 @@ export default defineContentScript({
 
       const mark = async () => {
         b.update({ state: { kind: 'prompt', title: det.title, busy: true } });
-        const payload: SolveRequest = {
-          canonicalKey: det.key,
-          lcSlug: isLc ? det.key.slice(3) : undefined,
-          title: det.title,
-          source: 'tuf',
-          url: location.href,
-          detected: 'manual',
-        };
+        const payload = buildSolveRequest(det);
         const r = await sendMessage({ type: 'MARK_SOLVED', payload });
         if (r.queued) {
           b.update({ state: { kind: 'queued' }, onClose: () => removeBanner() });
@@ -148,11 +153,18 @@ export default defineContentScript({
       debounce = setTimeout(() => void check(), 300);
     }
 
-    chrome.runtime.onMessage.addListener((msg) => {
+    chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+      if ((msg as PageProblemMessage)?.type === 'GET_PAGE_PROBLEM') {
+        void detect()
+          .then((det) => sendResponse(det ? buildSolveRequest(det) : null))
+          .catch(() => sendResponse(null));
+        return true;
+      }
       if (msg?.type === 'ROUTE_CHANGED') {
         void removeBanner();
         scheduleCheck();
       }
+      return false;
     });
     window.addEventListener('popstate', () => {
       void removeBanner();

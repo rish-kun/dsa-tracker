@@ -44,6 +44,8 @@ export interface SolvedProblem {
   difficulty: Difficulty | null;
   firstSource: Source;
   firstSolvedAt: string;
+  /** Earliest recorded URL on the site where the problem was solved. */
+  sourceUrl: string | null;
 }
 
 /** POST /api/solve request body. */
@@ -94,8 +96,8 @@ export interface ResolveResponse {
 }
 
 /**
- * POST /api/import request body: problem ids collected from NeetCode
- * (`getCompletedProblems`). Ids may be LeetCode titleSlugs (practice-list
+ * POST /api/import request body: problem ids collected from NeetCode's local
+ * completed-problem lists. Ids may be LeetCode titleSlugs (practice-list
  * problems) or NeetCode editor slugs — the server resolves each to an `lc:`
  * key when possible and falls back to `nc:`.
  */
@@ -132,6 +134,7 @@ export type ExtMessage =
   // popup -> service worker
   | { type: 'GET_CACHE' }
   | { type: 'REFRESH_CACHE' }
+  | { type: 'GET_ACTIVE_PROBLEM' }
   | { type: 'SET_API_BASE'; baseUrl: string }
   | { type: 'RUN_BACKFILL' }
   | { type: 'RUN_NC_IMPORT' };
@@ -159,6 +162,18 @@ export interface StatsResult {
   ok: boolean;
   stats: StatsResponse | null;
   cache: CachedState;
+}
+
+/** Problem context reported by the active tab to power the popup action. */
+export interface ActiveProblemResult {
+  payload: SolveRequest | null;
+  solved: boolean;
+  entry: SolvedProblem | null;
+}
+
+/** Message sent directly from the service worker to a site's content script. */
+export interface PageProblemMessage {
+  type: 'GET_PAGE_PROBLEM';
 }
 
 /** Result of the popup-triggered LeetCode backfill / NeetCode import runs. */

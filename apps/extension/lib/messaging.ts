@@ -1,4 +1,5 @@
 import type {
+  ActiveProblemResult,
   BackfillResponse,
   BackfillRunResult,
   CachedState,
@@ -25,6 +26,7 @@ interface ResponseMap {
   ROUTE_CHANGED: void;
   GET_CACHE: CachedState;
   REFRESH_CACHE: CachedState;
+  GET_ACTIVE_PROBLEM: ActiveProblemResult;
   SET_API_BASE: CachedState;
   RUN_BACKFILL: BackfillRunResult;
   RUN_NC_IMPORT: BackfillRunResult;
