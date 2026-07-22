@@ -28,3 +28,26 @@ export type PlanViewState = {
   /** Local date 'YYYY-MM-DD' (never toISOString()). */
   todayKey: string;
 };
+
+/**
+ * Everything the layout shell needs. It owns no data: every mutation goes
+ * through a handler `PlanClient` wires to a Server Action, so the shell stays
+ * pure presentation and the optimistic reducer stays in one place.
+ */
+export type PlanLayoutProps = {
+  state: PlanViewState;
+  daysLeft: number;
+  cppDone: number;
+  onToggleCheck: (id: string, val: boolean) => void;
+  onToggleFloor: (date: string, which: 'dsa' | 'cpp' | 'log') => void;
+  onToggleTrip: (date: string) => void;
+  onSaveLog: (date: string, text: string) => void;
+  onSaveNote: (date: string, text: string) => void;
+  onAddDsaExtra: (n: number) => void;
+  onUndoDsaExtra: () => void;
+  /** Input drafts live in PlanClient so an unmounted pane can't eat them. */
+  logInput: string;
+  setLogInput: (v: string) => void;
+  extraInput: string;
+  setExtraInput: (v: string) => void;
+};

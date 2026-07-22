@@ -12,11 +12,15 @@ const MAX_DSA = 150;
 /** Problems/day required to clear the DSA floor. */
 const DSA_FLOOR = 4;
 
+/** Notes render in a ~200px rail row; longer input is silently truncated. */
+const NOTE_MAX_LEN = 120;
+
 /** How far back calcStreak walks. Ported from _source-dsa-track/lib/store.ts. */
 const STREAK_WINDOW_DAYS = 60;
 
 export type PlanDayState = {
   log: string | null;
+  note: string | null;
   floorDsa: boolean;
   floorCpp: boolean;
   floorLog: boolean;
@@ -102,6 +106,7 @@ export async function getPlanState(): Promise<PlanState> {
            d."date",
            json_build_object(
              'log', d.log,
+             'note', d.note,
              'floorDsa', d.floor_dsa,
              'floorCpp', d.floor_cpp,
              'floorLog', d.floor_log,
@@ -301,6 +306,16 @@ export async function saveLog(date: string, text: string): Promise<void> {
       target: planDays.date,
       set: { log: log || null, ...(claimsFloor ? { floorLog: true } : {}) },
     });
+}
+
+/** Persist the day's note. An empty/whitespace-only string clears it to NULL. */
+export async function setNote(date: string, text: string): Promise<void> {
+  assertDateKey(date);
+  const note = text.trim().slice(0, NOTE_MAX_LEN) || null;
+  await db
+    .insert(planDays)
+    .values({ date, note })
+    .onConflictDoUpdate({ target: planDays.date, set: { note } });
 }
 
 /** Whole positive increments only; anything else is ignored, as in the source store. */

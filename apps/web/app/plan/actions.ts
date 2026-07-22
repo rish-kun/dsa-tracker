@@ -38,6 +38,11 @@ export async function saveLogAction(date: string, text: string): Promise<void> {
   revalidatePath(PLAN_PATH);
 }
 
+export async function setNoteAction(date: string, text: string): Promise<void> {
+  await planState.setNote(date, text);
+  revalidatePath(PLAN_PATH);
+}
+
 export async function addDsaAction(n: number): Promise<void> {
   await planState.addDsa(n);
   revalidatePath(PLAN_PATH);

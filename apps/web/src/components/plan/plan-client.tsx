@@ -7,27 +7,24 @@ import {
   addDsaExtraAction,
   saveLogAction,
   setCheckAction,
+  setNoteAction,
   setFloorAction,
   setTripAction,
   undoDsaExtraAction,
 } from '../../../app/plan/actions';
 import type { PlanDayState } from '@/lib/plan-state';
-import { CppPhases } from './cpp-phases';
-import { DsaMethod } from './dsa-method';
-import { ResumeChecklist } from './resume-checklist';
-import { Schedule } from './schedule';
-import { StatRings } from './stat-rings';
-import { TodayHero } from './today-hero';
-import type { PlanViewState } from './types';
+import { LayoutCockpit } from './layout-cockpit';
+import type { PlanLayoutProps, PlanViewState } from './types';
 
 /** Mirrors MAX_DSA in lib/plan-state.ts for the manual extra counter. */
 const MAX_DSA = 150;
 
 type FloorKey = 'dsa' | 'cpp' | 'log';
 
-/** A day with no persisted row yet — every flag off, no log. */
+/** A day with no persisted row yet — every flag off, no log, no note. */
 const EMPTY_DAY: PlanDayState = {
   log: null,
+  note: null,
   floorDsa: false,
   floorCpp: false,
   floorLog: false,
@@ -39,6 +36,7 @@ type OptimisticAction =
   | { kind: 'floor'; date: string; which: FloorKey; value: boolean }
   | { kind: 'trip'; date: string; value: boolean }
   | { kind: 'log'; date: string; text: string }
+  | { kind: 'note'; date: string; text: string }
   | { kind: 'addExtra'; n: number }
   | { kind: 'undoExtra' };
 
@@ -104,6 +102,13 @@ function planReducer(state: PlanViewState, action: OptimisticAction): PlanViewSt
         floorLog: true,
       }));
 
+    case 'note':
+      // Unlike the log, a note claims no floor — it is an annotation, not work.
+      return patchDay(state, action.date, (day) => ({
+        ...day,
+        note: action.text || null,
+      }));
+
     case 'addExtra': {
       const c = state.counters;
       return {
@@ -141,6 +146,8 @@ type Props = {
   state: PlanViewState;
   daysLeft: number;
   cppDone: number;
+  /** `?d=` — the initially selected day. Seed value only.  */
+  initialSelected?: string;
 };
 
 /**
@@ -150,13 +157,19 @@ type Props = {
  * action rolls its optimistic entry back automatically — all this has to do is
  * catch it so it never surfaces as an unhandled rejection.
  */
-export function PlanClient({ state, daysLeft, cppDone }: Props) {
+export function PlanClient({ state, daysLeft, cppDone, initialSelected }: Props) {
   const router = useRouter();
   const [optimistic, applyOptimistic] = useOptimistic(state, planReducer);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const refreshQueued = useRef(false);
   const lastRefreshAt = useRef(0);
+
+  // The log draft lives here, not in the panel that renders it: the panel is
+  // reused across days and remounts when the selection changes, which would
+  // silently eat a half-typed log if the state sat one level down.
+  const [logInput, setLogInput] = useState('');
+  const [extraInput, setExtraInput] = useState('');
 
   // Extension writes happen outside this React tree. Revalidate when the user
   // returns to the plan tab so newly detected solves appear without polling.
@@ -226,13 +239,36 @@ export function PlanClient({ state, daysLeft, cppDone }: Props) {
     run({ kind: 'trip', date, value }, () => setTripAction(date, value));
   };
 
-  // TodayHero trims and drops empties before calling this.
-  const onSaveLog = (text: string) =>
-    run({ kind: 'log', date: todayKey, text }, () => saveLogAction(todayKey, text));
+  // The log field trims and drops empties before calling this. The date is a
+  // parameter, not `todayKey`: layout C can backfill a past day, and the action
+  // and the optimistic reducer have both always been date-scoped.
+  const onSaveLog = (date: string, text: string) =>
+    run({ kind: 'log', date, text }, () => saveLogAction(date, text));
+
+  const onSaveNote = (date: string, text: string) =>
+    run({ kind: 'note', date, text }, () => setNoteAction(date, text));
 
   const onAddDsaExtra = (n: number) =>
     run({ kind: 'addExtra', n }, () => addDsaExtraAction(n));
   const onUndoDsaExtra = () => run({ kind: 'undoExtra' }, () => undoDsaExtraAction());
+
+  // The shell owns no data and never talks to a Server Action directly.
+  const layoutProps: PlanLayoutProps = {
+    state: optimistic,
+    daysLeft,
+    cppDone: cppDoneNow,
+    onToggleCheck,
+    onToggleFloor,
+    onToggleTrip,
+    onSaveLog,
+    onSaveNote,
+    onAddDsaExtra,
+    onUndoDsaExtra,
+    logInput,
+    setLogInput,
+    extraInput,
+    setExtraInput,
+  };
 
   return (
     <div aria-busy={isPending}>
@@ -254,32 +290,7 @@ export function PlanClient({ state, daysLeft, cppDone }: Props) {
         </div>
       )}
 
-      <StatRings
-        dsaCount={optimistic.neetcode150Solved}
-        dsaExtra={optimistic.counters.dsaExtra}
-        cppDone={cppDoneNow}
-        streak={optimistic.streak}
-        daysLeft={daysLeft}
-      />
-
-      <TodayHero
-        state={optimistic}
-        todayKey={todayKey}
-        onToggleCheck={onToggleCheck}
-        onToggleFloor={onToggleFloor}
-        onToggleTrip={onToggleTrip}
-        onAddDsaExtra={onAddDsaExtra}
-        onUndoDsaExtra={onUndoDsaExtra}
-        onSaveLog={onSaveLog}
-      />
-
-      <CppPhases state={optimistic} onToggleCheck={onToggleCheck} />
-
-      <DsaMethod />
-
-      <Schedule state={optimistic} todayKey={todayKey} onToggleCheck={onToggleCheck} />
-
-      <ResumeChecklist state={optimistic} onToggleCheck={onToggleCheck} />
+      <LayoutCockpit {...layoutProps} initialSelected={initialSelected} />
     </div>
   );
 }

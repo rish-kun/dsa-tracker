@@ -146,3 +146,195 @@ export async function getDashboardStats(): Promise<StatsResponse> {
     return EMPTY_STATS;
   }
 }
+
+/**
+ * Local, dashboard-only shape — deliberately NOT part of `StatsResponse`
+ * (the `@dsa-tracker/shared` API contract used by GET /api/stats and the
+ * extension). This is extra derived data for the `/` page only, so it lives
+ * next to `StatsResponse` in this same "single read path" file rather than
+ * widening the shared contract or adding a second stats module.
+ *
+ * Everything here is built from `solve_events` where `detected <> 'backfill'`
+ * — i.e. live-detected solves (repeats included), bucketed in Asia/Kolkata —
+ * which is a different signal from `solved_problems.first_solved_at` (unique,
+ * first-solve-only, source-agnostic) that the panels above already cover.
+ */
+export interface DashboardExtras {
+  /** Last 53 weeks (371 days) of live-solve counts, oldest first, zero-filled. */
+  heatmap: { date: string; count: number }[];
+  /** Days (not necessarily unique problems) with >=1 live solve, consecutive. */
+  streak: { current: number; longest: number };
+  records: {
+    bestDay: { date: string; count: number } | null;
+    bestWeek: { weekStart: string; count: number } | null;
+    /** Live solves per day, averaged over the trailing 30 days (zero days included). */
+    avgPerDay30: number;
+    /** All-time count of distinct days with >=1 live solve. */
+    daysActive: number;
+  };
+  /** Live-solve totals for the last 8 calendar weeks (Mon-start), zero-filled. */
+  weeklyPace: { weekStart: string; count: number }[];
+}
+
+const EMPTY_EXTRAS: DashboardExtras = {
+  heatmap: [],
+  streak: { current: 0, longest: 0 },
+  records: { bestDay: null, bestWeek: null, avgPerDay30: 0, daysActive: 0 },
+  weeklyPace: [],
+};
+
+type ExtrasRow = {
+  heatmap: DashboardExtras['heatmap'];
+  streak: DashboardExtras['streak'];
+  records: DashboardExtras['records'];
+  weekly_pace: DashboardExtras['weeklyPace'];
+};
+
+/**
+ * One round trip, gaps-and-islands streak calc done in SQL. "Today" is
+ * evaluated in Asia/Kolkata at query time (the page is force-dynamic).
+ *
+ * Throws — callers that must never fail use `getDashboardExtras()`.
+ */
+export async function loadDashboardExtras(): Promise<DashboardExtras> {
+  const rows = await db.execute<ExtrasRow>(sql`
+    with bounds as (
+      select (now() at time zone 'Asia/Kolkata')::date as today
+    ),
+    live as (
+      select (created_at at time zone 'Asia/Kolkata')::date as day_date
+      from ${solveEvents}
+      where detected <> 'backfill'
+    ),
+    by_day as (
+      select day_date, count(*)::int as n
+      from live
+      group by day_date
+    ),
+    heatmap_days as (
+      -- 53 weeks, so the grid is the familiar year-long contribution shape and
+      -- fills the panel's width instead of huddling in one corner of it.
+      select generate_series(
+        (select today from bounds) - 370,
+        (select today from bounds),
+        interval '1 day'
+      )::date as day_date
+    ),
+    heatmap as (
+      select hd.day_date, coalesce(bd.n, 0)::int as n
+      from heatmap_days hd
+      left join by_day bd using (day_date)
+    ),
+    -- Classic gaps-and-islands: subtracting a per-row sequence number from a
+    -- date collapses every run of consecutive dates onto the same grp value.
+    islands as (
+      select day_date, (day_date - (row_number() over (order by day_date))::int) as grp
+      from by_day
+    ),
+    island_ranges as (
+      select grp, min(day_date) as start_date, max(day_date) as end_date, count(*)::int as len
+      from islands
+      group by grp
+    ),
+    current_streak as (
+      select coalesce(
+        (
+          select len from island_ranges, bounds
+          where end_date >= bounds.today - 1
+          order by end_date desc
+          limit 1
+        ), 0
+      ) as len
+    ),
+    longest_streak as (
+      select coalesce(max(len), 0) as len from island_ranges
+    ),
+    weekly_all as (
+      select date_trunc('week', day_date)::date as week_start, sum(n)::int as n
+      from by_day
+      group by 1
+    ),
+    best_day as (
+      select day_date, n from by_day order by n desc, day_date desc limit 1
+    ),
+    best_week as (
+      select week_start, n from weekly_all order by n desc, week_start desc limit 1
+    ),
+    last30 as (
+      select coalesce(sum(n), 0)::int as total
+      from by_day, bounds
+      where day_date >= bounds.today - 29
+    ),
+    days_active as (
+      select count(*)::int as n from by_day
+    ),
+    weekly_window as (
+      select generate_series(
+        date_trunc('week', (select today from bounds)) - interval '7 weeks',
+        date_trunc('week', (select today from bounds)),
+        interval '1 week'
+      )::date as week_start
+    ),
+    weekly_pace as (
+      select ww.week_start, coalesce(wa.n, 0)::int as n
+      from weekly_window ww
+      left join weekly_all wa using (week_start)
+    )
+    select
+      coalesce(
+        (select json_agg(
+           json_build_object('date', to_char(day_date, 'YYYY-MM-DD'), 'count', n)
+           order by day_date
+         ) from heatmap),
+        '[]'
+      ) as heatmap,
+      json_build_object(
+        'current', (select len from current_streak),
+        'longest', (select len from longest_streak)
+      ) as streak,
+      json_build_object(
+        'bestDay', (
+          select json_build_object('date', to_char(day_date, 'YYYY-MM-DD'), 'count', n)
+          from best_day
+        ),
+        'bestWeek', (
+          select json_build_object('weekStart', to_char(week_start, 'YYYY-MM-DD'), 'count', n)
+          from best_week
+        ),
+        'avgPerDay30', (select round(total::numeric / 30, 1) from last30),
+        'daysActive', (select n from days_active)
+      ) as records,
+      coalesce(
+        (select json_agg(
+           json_build_object('weekStart', to_char(week_start, 'YYYY-MM-DD'), 'count', n)
+           order by week_start
+         ) from weekly_pace),
+        '[]'
+      ) as weekly_pace
+  `);
+
+  const row = rows[0];
+  if (!row) return EMPTY_EXTRAS;
+
+  return {
+    heatmap: row.heatmap,
+    streak: row.streak,
+    records: row.records,
+    weeklyPace: row.weekly_pace,
+  };
+}
+
+/**
+ * Never throws — falls back to an all-zero/empty shape so `/` always renders
+ * against an unreachable or empty DB, same contract as `getDashboardStats()`.
+ */
+export async function getDashboardExtras(): Promise<DashboardExtras> {
+  try {
+    return await loadDashboardExtras();
+  } catch (err) {
+    console.error(
+      `getDashboardExtras failed, rendering empty state: ${publicErrorMessage(err)}`,
+    );
+    return EMPTY_EXTRAS;
+  }
+}

@@ -72,25 +72,59 @@ export function DsaMethod() {
         <h2 className="text-[14px] font-semibold text-[var(--pt-text)]">DSA method &amp; order</h2>
       </div>
 
-      <div className="grid grid-cols-1 gap-2.5 p-4 sm:grid-cols-2">
-        {METHOD_CARDS.map(({ title, accent, accentBar, content }) => (
-          <div
-            key={title}
-            className="rounded-md border border-[var(--pt-border)] bg-[var(--pt-surface-raised)] p-3.5"
-          >
-            <div
-              className={cn(
-                'mb-1.5 flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-[0.06em]',
-                accent,
-              )}
-            >
-              <span className={cn('h-3.5 w-1 shrink-0 rounded-full', accentBar)} />
-              {title}
-            </div>
-            <div className="text-[12.5px] leading-relaxed text-[var(--pt-text-2)]">{content}</div>
-          </div>
-        ))}
-      </div>
+      <DsaMethodBody />
     </section>
+  );
+}
+
+/**
+ * The four reference cards without the section chrome. `withRules` appends the
+ * permanent "Never miss twice" card — the shells that fold all static prose into
+ * one place render it here rather than leaving it in the daily panel, where it
+ * held prime space for something read once a week.
+ */
+export function DsaMethodBody({ withRules = false }: { withRules?: boolean }) {
+  return (
+    <div className="grid grid-cols-1 gap-2.5 p-4 sm:grid-cols-2">
+      {METHOD_CARDS.map(({ title, accent, accentBar, content }) => (
+        <div
+          key={title}
+          className="rounded-md border border-[var(--pt-border)] bg-[var(--pt-surface-raised)] p-3.5"
+        >
+          <div
+            className={cn(
+              'mb-1.5 flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-[0.06em]',
+              accent,
+            )}
+          >
+            <span className={cn('h-3.5 w-1 shrink-0 rounded-full', accentBar)} />
+            {title}
+          </div>
+          <div className="text-[12.5px] leading-relaxed text-[var(--pt-text-2)]">{content}</div>
+        </div>
+      ))}
+
+      {withRules && (
+        <div className="sm:col-span-2">
+          <NeverMissTwice />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The zero-day rule. One copy, several callers: the reference pane holds the
+ * permanent version, and the stack shell surfaces it in the daily panel only on
+ * the day it actually applies.
+ */
+export function NeverMissTwice({ urgent = false }: { urgent?: boolean }) {
+  return (
+    <div className="rounded-md border-l-2 border-l-[var(--pt-amber)] bg-[var(--pt-amber-bg)] px-3.5 py-3 text-[12.5px] leading-relaxed text-[var(--pt-text-2)]">
+      <span className="font-semibold text-[var(--pt-amber)]">Never miss twice.</span>{' '}
+      {urgent
+        ? 'Yesterday was a zero day. Today is the one that matters.'
+        : 'A zero day happens — jet lag, trip. Two in a row is the real danger.'}
+    </div>
   );
 }

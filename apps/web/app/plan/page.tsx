@@ -18,13 +18,10 @@ export const metadata: Metadata = {
   description: 'Day-by-day prep plan: DSA counters, C++ phases, daily floor, and resume checklist.',
 };
 
-/** Companies this plan is aimed at — first one is the anchor. */
-const TARGETS = ['DE Shaw', 'Stripe', 'Uber', 'Google', 'Oracle', 'LinkedIn', 'Atlassian'];
-
-/** OA season opens on this date; the header counts down to it. */
+/** OA season opens on this date; the rail counts down to it. */
 const OA_DATE_KEY = '2026-08-01';
 
-/** Exact membership boundary for the NeetCode 150 progress ring. */
+/** Exact membership boundary for the NeetCode 150 progress meter. */
 const NEETCODE_150_KEY_SET = new Set<string>(NEETCODE_150_KEYS);
 
 /**
@@ -76,6 +73,7 @@ function resolveChecks(
 
 const EMPTY_DAY: PlanDayState = {
   log: null,
+  note: null,
   floorDsa: false,
   floorCpp: false,
   floorLog: false,
@@ -99,7 +97,13 @@ function resolveDays(
   return { days, floorDsaAuto };
 }
 
-export default async function PlanPage() {
+type SearchParams = Promise<{ d?: string }>;
+
+export default async function PlanPage({ searchParams }: { searchParams: SearchParams }) {
+  // Reading searchParams keeps the route dynamic — it already is via
+  // `force-dynamic`, so nothing about the DB reads below changes.
+  const sp = await searchParams;
+
   // Sequential, never Promise.all: the postgres.js client is deliberately
   // max: 1 and a concurrent fan-out stalls the Supabase transaction pooler.
   // Every read degrades to empty state, so this renders without a database.
@@ -128,54 +132,22 @@ export default async function PlanPage() {
   };
 
   const daysLeft = daysUntil(todayKey, OA_DATE_KEY);
-  // Denominator lives in StatRings (PHASE_COUNT); the numerator is counted the
+  // Denominator is PHASE_COUNT, never a literal; the numerator is counted the
   // one legal way — checkId.phase against the resolved checks.
   const cppDone = PHASES.filter((phase) => state.checks[checkId.phase(phase)]).length;
 
   return (
+    // No page header: the title, the date range and the company list were three
+    // lines of fixed text above every visit, and the cockpit's rail already
+    // carries the only header content that changes (pace, days left, today's
+    // solves). The plan starts at the work.
     <main className="page">
-      <div className="page-header">
-        <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
-          <div className="min-w-0">
-            <h1 className="page-title">Internship Prep</h1>
-            <p className="page-subtitle">
-              Jul 7 – Aug 1 · OA season · progress auto-saves to your database
-            </p>
-          </div>
-
-          <div className="flex shrink-0 items-end gap-5 text-right sm:gap-7">
-            <div>
-              <span className="font-mono text-[26px] font-bold tabular-nums text-[var(--pt-blue)]">
-                {liveStats.solvedPerDay[todayKey] ?? 0}
-              </span>
-              <span className="ml-1.5 text-[11px] text-[var(--pt-text-3)]">solved today</span>
-            </div>
-            <div>
-              <span className="font-mono text-[26px] font-bold tabular-nums text-[var(--pt-text)]">
-                {daysLeft}
-              </span>
-              <span className="ml-1.5 text-[11px] text-[var(--pt-text-3)]">
-                {daysLeft === 1 ? 'day left' : 'days left'}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <p className="flex flex-wrap items-center text-[12px] text-[var(--pt-text-3)]">
-          {TARGETS.map((target, i) => (
-            <span key={target} className="flex items-center">
-              {i > 0 && (
-                <span aria-hidden="true" className="mx-1.5 text-[var(--pt-border-2)]">
-                  ·
-                </span>
-              )}
-              <span className={i === 0 ? 'text-[var(--pt-text-2)]' : undefined}>{target}</span>
-            </span>
-          ))}
-        </p>
-      </div>
-
-      <PlanClient state={state} daysLeft={daysLeft} cppDone={cppDone} />
+      <PlanClient
+        state={state}
+        daysLeft={daysLeft}
+        cppDone={cppDone}
+        initialSelected={sp.d}
+      />
     </main>
   );
 }

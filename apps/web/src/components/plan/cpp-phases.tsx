@@ -1,7 +1,9 @@
 'use client';
 
 import { PHASES, checkId } from '@dsa-tracker/plan-data';
+import { useState } from 'react';
 import { cn } from '@/lib/utils';
+import { Chevron } from './problem-group';
 import type { PlanViewState } from './types';
 
 type Props = {
@@ -9,9 +11,22 @@ type Props = {
   onToggleCheck: (id: string, val: boolean) => void;
 };
 
-export function CppPhases({ state, onToggleCheck }: Props) {
+/** Phases done, counted the one legal way. Exported so shells can label a row. */
+export function cppPhasesDone(state: PlanViewState): number {
   // IDs come from checkId.phase — never a positional `p${i}`.
-  const done = PHASES.filter((phase) => state.checks[checkId.phase(phase)]).length;
+  return PHASES.filter((phase) => state.checks[checkId.phase(phase)]).length;
+}
+
+/**
+ * The first phase still unticked — what a collapsed summary line should name.
+ * Returns null once every phase has shipped.
+ */
+export function nextCppPhase(state: PlanViewState) {
+  return PHASES.find((phase) => !state.checks[checkId.phase(phase)]) ?? null;
+}
+
+export function CppPhases({ state, onToggleCheck }: Props) {
+  const done = cppPhasesDone(state);
 
   return (
     <section className="mb-6 overflow-hidden rounded-[10px] border border-[var(--pt-border)] bg-[var(--pt-surface)] shadow-[var(--pt-shadow-panel)]">
@@ -33,6 +48,26 @@ export function CppPhases({ state, onToggleCheck }: Props) {
         />
       </div>
 
+      <CppPhasesBody state={state} onToggleCheck={onToggleCheck} />
+    </section>
+  );
+}
+
+/**
+ * The phase grid and the triage note, without the section chrome (header bar and
+ * 3px progress bar) — those become the caller's job in the shells that give this
+ * a disclosure row or a pane of its own. `collapsibleTriage` folds the rose note
+ * behind a one-line disclosure so an expanded body doesn't end on a paragraph.
+ */
+export function CppPhasesBody({
+  state,
+  onToggleCheck,
+  collapsibleTriage = false,
+}: Props & { collapsibleTriage?: boolean }) {
+  const [triageOpen, setTriageOpen] = useState(false);
+
+  return (
+    <>
       {/* phase grid */}
       <div className="grid grid-cols-1 gap-2.5 p-4 sm:grid-cols-2 lg:grid-cols-3">
         {PHASES.map((phase) => {
@@ -94,13 +129,37 @@ export function CppPhases({ state, onToggleCheck }: Props) {
       </div>
 
       {/* triage note */}
-      <div className="mx-4 mb-4 rounded-md border-l-2 border-l-[var(--pt-rose)] bg-[var(--pt-rose-bg)] px-3.5 py-3 text-[12.5px] leading-relaxed text-[var(--pt-text-2)]">
-        <span className="font-semibold text-[var(--pt-rose)]">Triage if behind (cut top-down):</span>{' '}
-        NSW stretch → mmap (plain binary snapshots are fine) → shrink benchmark scope.{' '}
-        <span className="font-semibold text-[var(--pt-text)]">Never cut phases 2–4</span>{' '}
-        (semantic layer · SIMD · eviction) — that trio is the resume story. Concurrency = one
-        std::shared_mutex, nothing more.
-      </div>
-    </section>
+      {collapsibleTriage ? (
+        <div className="mx-4 mb-4">
+          <button
+            type="button"
+            onClick={() => setTriageOpen((o) => !o)}
+            aria-expanded={triageOpen}
+            className="flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-left text-[12px] font-medium text-[var(--pt-rose)] transition-colors hover:bg-[var(--pt-surface-raised)] max-sm:min-h-[44px]"
+          >
+            <Chevron open={triageOpen} size={11} />
+            Triage if behind
+          </button>
+          {triageOpen && <TriageNote />}
+        </div>
+      ) : (
+        <div className="mx-4 mb-4">
+          <TriageNote />
+        </div>
+      )}
+    </>
+  );
+}
+
+/** The cut-top-down rules. One copy, two callers. */
+export function TriageNote() {
+  return (
+    <div className="rounded-md border-l-2 border-l-[var(--pt-rose)] bg-[var(--pt-rose-bg)] px-3.5 py-3 text-[12.5px] leading-relaxed text-[var(--pt-text-2)]">
+      <span className="font-semibold text-[var(--pt-rose)]">Triage if behind (cut top-down):</span>{' '}
+      NSW stretch → mmap (plain binary snapshots are fine) → shrink benchmark scope.{' '}
+      <span className="font-semibold text-[var(--pt-text)]">Never cut phases 2–4</span>{' '}
+      (semantic layer · SIMD · eviction) — that trio is the resume story. Concurrency = one
+      std::shared_mutex, nothing more.
+    </div>
   );
 }

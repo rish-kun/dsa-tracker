@@ -81,6 +81,7 @@ export const planChecks = pgTable('plan_checks', {
 export const planDays = pgTable('plan_days', {
   date: text('date').primaryKey(),
   log: text('log'),
+  note: text('note'),
   floorDsa: boolean('floor_dsa').notNull().default(false),
   floorCpp: boolean('floor_cpp').notNull().default(false),
   floorLog: boolean('floor_log').notNull().default(false),

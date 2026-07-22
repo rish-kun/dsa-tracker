@@ -1,16 +1,23 @@
+import { ActivityHeatmap } from '@/components/ActivityHeatmap';
 import { DifficultyBar } from '@/components/DifficultyBar';
 import { EmptyState } from '@/components/EmptyState';
 import { HeroStats } from '@/components/HeroStats';
 import { RecentList } from '@/components/RecentList';
+import { RecordsPanel } from '@/components/RecordsPanel';
 import type { CumulativePoint } from '@/components/SolvesOverTimeChart';
 import { SolvesOverTimeChart } from '@/components/SolvesOverTimeChart';
 import { SourceBars } from '@/components/SourceBars';
-import { getDashboardStats } from '@/lib/dashboard-stats';
+import { StreakPanel } from '@/components/StreakPanel';
+import { WeeklyPacePanel } from '@/components/WeeklyPacePanel';
+import { getDashboardExtras, getDashboardStats } from '@/lib/dashboard-stats';
 
 export const dynamic = 'force-dynamic';
 
 export default async function DashboardPage() {
+  // Sequential, not Promise.all — the postgres.js client is `max: 1` and a
+  // concurrent fan-out stalls the Supabase transaction pooler.
   const stats = await getDashboardStats();
+  const extras = await getDashboardExtras();
   const isEmpty = stats.totals.lcUnique === 0 && stats.totals.other === 0;
 
   let running = 0;
@@ -40,6 +47,17 @@ export default async function DashboardPage() {
           <div className="grid-2 grid-cols-1 lg:grid-cols-2">
             <SourceBars bySource={stats.bySource} />
             <RecentList recent={stats.recent} />
+          </div>
+
+          <ActivityHeatmap heatmap={extras.heatmap} />
+
+          {/* Same reasoning as the row above: hold one column until `lg` so
+              `.grid-2`'s 2-column default never squeezes these onto a cramped
+              tablet-width row — at `lg` it widens to the full 3-up instead. */}
+          <div className="grid-2 grid-cols-1 lg:grid-cols-3">
+            <StreakPanel streak={extras.streak} />
+            <RecordsPanel records={extras.records} />
+            <WeeklyPacePanel weeklyPace={extras.weeklyPace} />
           </div>
         </>
       )}
