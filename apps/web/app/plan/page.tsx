@@ -6,10 +6,8 @@ import {
   localDateKey,
 } from '@dsa-tracker/plan-data';
 import type { Metadata } from 'next';
-import { cn } from '@/lib/utils';
 import { PlanClient } from '@/components/plan/plan-client';
-import { isPlanView, type PlanView, type PlanViewState } from '@/components/plan/types';
-import { ViewSwitcher } from '@/components/plan/view-switcher';
+import type { PlanViewState } from '@/components/plan/types';
 import type { PlanDayState } from '@/lib/plan-state';
 import { getLiveSolveStats, getPlanState, getPlanStreak, getSolvedKeySet } from '@/lib/plan-state';
 
@@ -20,13 +18,10 @@ export const metadata: Metadata = {
   description: 'Day-by-day prep plan: DSA counters, C++ phases, daily floor, and resume checklist.',
 };
 
-/** Companies this plan is aimed at — first one is the anchor. */
-const TARGETS = ['DE Shaw', 'Stripe', 'Uber', 'Google', 'Oracle', 'LinkedIn', 'Atlassian'];
-
-/** OA season opens on this date; the header counts down to it. */
+/** OA season opens on this date; the rail counts down to it. */
 const OA_DATE_KEY = '2026-08-01';
 
-/** Exact membership boundary for the NeetCode 150 progress ring. */
+/** Exact membership boundary for the NeetCode 150 progress meter. */
 const NEETCODE_150_KEY_SET = new Set<string>(NEETCODE_150_KEYS);
 
 /**
@@ -78,6 +73,7 @@ function resolveChecks(
 
 const EMPTY_DAY: PlanDayState = {
   log: null,
+  note: null,
   floorDsa: false,
   floorCpp: false,
   floorLog: false,
@@ -101,16 +97,12 @@ function resolveDays(
   return { days, floorDsaAuto };
 }
 
-/** Layout `a` is the working default while the four are being compared. */
-const DEFAULT_VIEW: PlanView = 'a';
-
-type SearchParams = Promise<{ view?: string; tab?: string; d?: string }>;
+type SearchParams = Promise<{ d?: string }>;
 
 export default async function PlanPage({ searchParams }: { searchParams: SearchParams }) {
   // Reading searchParams keeps the route dynamic — it already is via
   // `force-dynamic`, so nothing about the DB reads below changes.
   const sp = await searchParams;
-  const view: PlanView = isPlanView(sp.view) ? sp.view : DEFAULT_VIEW;
 
   // Sequential, never Promise.all: the postgres.js client is deliberately
   // max: 1 and a concurrent fan-out stalls the Supabase transaction pooler.
@@ -140,63 +132,20 @@ export default async function PlanPage({ searchParams }: { searchParams: SearchP
   };
 
   const daysLeft = daysUntil(todayKey, OA_DATE_KEY);
-  // Denominator lives in StatRings (PHASE_COUNT); the numerator is counted the
+  // Denominator is PHASE_COUNT, never a literal; the numerator is counted the
   // one legal way — checkId.phase against the resolved checks.
   const cppDone = PHASES.filter((phase) => state.checks[checkId.phase(phase)]).length;
 
   return (
-    // Only the cockpit earns more than the site's 1000px column. `.page` lives
-    // in @layer components, so a Tailwind utility on the same element wins.
-    <main className={cn('page', view === 'c' && 'lg:max-w-[1280px] xl:max-w-[1440px]')}>
-      <div className="page-header">
-        <ViewSwitcher view={view} />
-
-        <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
-          <div className="min-w-0">
-            <h1 className="page-title">Internship Prep</h1>
-            <p className="page-subtitle">
-              Jul 7 – Aug 1 · OA season · progress auto-saves to your database
-            </p>
-          </div>
-
-          <div className="flex shrink-0 items-end gap-5 text-right sm:gap-7">
-            <div>
-              <span className="font-mono text-[26px] font-bold tabular-nums text-[var(--pt-blue)]">
-                {liveStats.solvedPerDay[todayKey] ?? 0}
-              </span>
-              <span className="ml-1.5 text-[11px] text-[var(--pt-text-3)]">solved today</span>
-            </div>
-            <div>
-              <span className="font-mono text-[26px] font-bold tabular-nums text-[var(--pt-text)]">
-                {daysLeft}
-              </span>
-              <span className="ml-1.5 text-[11px] text-[var(--pt-text-3)]">
-                {daysLeft === 1 ? 'day left' : 'days left'}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <p className="flex flex-wrap items-center text-[12px] text-[var(--pt-text-3)]">
-          {TARGETS.map((target, i) => (
-            <span key={target} className="flex items-center">
-              {i > 0 && (
-                <span aria-hidden="true" className="mx-1.5 text-[var(--pt-border-2)]">
-                  ·
-                </span>
-              )}
-              <span className={i === 0 ? 'text-[var(--pt-text-2)]' : undefined}>{target}</span>
-            </span>
-          ))}
-        </p>
-      </div>
-
+    // No page header: the title, the date range and the company list were three
+    // lines of fixed text above every visit, and the cockpit's rail already
+    // carries the only header content that changes (pace, days left, today's
+    // solves). The plan starts at the work.
+    <main className="page">
       <PlanClient
         state={state}
         daysLeft={daysLeft}
         cppDone={cppDone}
-        view={view}
-        initialTab={sp.tab}
         initialSelected={sp.d}
       />
     </main>

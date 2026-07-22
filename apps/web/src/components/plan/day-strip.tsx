@@ -3,7 +3,6 @@
 import { useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import type { DaySummary } from './day-summary';
-import type { PlanSelection } from './selection';
 
 /**
  * The sub-`lg` form of the rail: a horizontal, snapping day strip.
@@ -15,15 +14,13 @@ import type { PlanSelection } from './selection';
  */
 type Props = {
   summaries: DaySummary[];
-  selection: PlanSelection;
-  onSelect: (sel: PlanSelection) => void;
+  selectedDate: string;
+  onSelect: (date: string) => void;
 };
 
-export function DayStrip({ summaries, selection, onSelect }: Props) {
+export function DayStrip({ summaries, selectedDate, onSelect }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const selectedRef = useRef<HTMLButtonElement>(null);
-
-  const selectedDate = selection.kind === 'day' ? selection.date : null;
 
   // Centre the selection horizontally. scrollLeft directly for the same reason
   // the rail sets scrollTop — scrollIntoView would move the page too.
@@ -65,7 +62,7 @@ export function DayStrip({ summaries, selection, onSelect }: Props) {
               aria-selected={selected}
               aria-controls="plan-pane"
               tabIndex={selected ? 0 : -1}
-              onClick={() => onSelect({ kind: 'day', date: s.date })}
+              onClick={() => onSelect(s.date)}
               title={s.label}
               className={cn(
                 'flex w-[52px] shrink-0 flex-col items-center gap-0.5 rounded-md border-b-2 px-1 py-1.5 transition-colors sm:w-[58px]',

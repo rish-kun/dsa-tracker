@@ -32,6 +32,12 @@ import type { PlanViewState } from './types';
 /** Manual extra-problem ladder ceiling. */
 export const DSA_TARGET = 150;
 
+/** NeetCode 150, then 150 more — the target the pace metric divides. */
+export const TOTAL_TARGET = DSA_TARGET * 2;
+
+/** Longest note that fits a rail row. Mirrors NOTE_MAX_LEN in lib/plan-state.ts. */
+export const NOTE_MAX_LEN = 120;
+
 /** Trip days budgeted for the whole plan. */
 export const TRIP_BUDGET = 3;
 
@@ -151,6 +157,23 @@ export function DayHeader({ state, dateKey, todayKey, onStep, onGoToToday }: Hea
           </button>
         )}
 
+        {/* The calendar convention: a "Today" button that only exists while you
+            are looking at some other day, sitting with the arrows that moved you
+            off it. */}
+        {!isToday && onGoToToday && (
+          <button
+            type="button"
+            onClick={onGoToToday}
+            className={cn(
+              'shrink-0 rounded-md border border-[var(--pt-border)] px-2.5 py-1 text-[12px] font-semibold transition-colors',
+              'text-[var(--pt-text-2)] hover:border-[var(--pt-text-3)] hover:bg-[var(--pt-surface)] hover:text-[var(--pt-text)]',
+              'max-sm:min-h-[36px]',
+            )}
+          >
+            Today
+          </button>
+        )}
+
         {/* min-w-0 so a long day label wraps instead of pushing the floor-pill
             counter out of the card. */}
         <div className="min-w-0">
@@ -177,16 +200,6 @@ export function DayHeader({ state, dateKey, todayKey, onStep, onGoToToday }: Hea
       </div>
 
       <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-        {!isToday && onGoToToday && (
-          <button
-            type="button"
-            onClick={onGoToToday}
-            className="rounded-md px-2 py-1 text-[12px] font-medium text-[var(--pt-blue)] transition-colors hover:bg-[var(--pt-blue-bg)] max-sm:min-h-[36px]"
-          >
-            Back to today
-          </button>
-        )}
-
         {/* floor pill progress */}
         <div className="flex shrink-0 items-center gap-1.5">
           {FLOOR_PILLS.map((p) => (
@@ -570,6 +583,92 @@ export function LogHistory({ state }: { state: PlanViewState }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ── per-day note ────────────────────────────────────────────────────────── */
+
+type NoteProps = {
+  state: PlanViewState;
+  dateKey: string;
+  onSaveNote: (date: string, text: string) => void;
+};
+
+/**
+ * A short pinned note for one day — the thing that shows up beside that day in
+ * the rail. Distinct from the one-line log: the log is "what I did", written
+ * after the fact and kept as history; a note is "what this day is for", and it
+ * is the only annotation the rail has room to surface.
+ *
+ * Unlike the log, this is editable on any day including future ones — annotating
+ * "Google OA" on a day that hasn't arrived is the whole point.
+ */
+export function DayNote({ state, dateKey, onSaveNote }: NoteProps) {
+  const saved = state.days[dateKey]?.note ?? '';
+  const [draft, setDraft] = useState(saved);
+  const [editing, setEditing] = useState(false);
+
+  // The note is per-day, so a draft must not follow the user to the next day.
+  // Callers key this component by dateKey; this resync covers the case where the
+  // saved value changes underneath an open editor (a revalidation landing).
+  const [lastSaved, setLastSaved] = useState(saved);
+  if (saved !== lastSaved) {
+    setLastSaved(saved);
+    if (!editing) setDraft(saved);
+  }
+
+  const commit = () => {
+    const text = draft.trim().slice(0, NOTE_MAX_LEN);
+    setEditing(false);
+    if (text !== saved) onSaveNote(dateKey, text);
+  };
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        className={cn(
+          'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12.5px] transition-colors',
+          'hover:bg-[var(--pt-surface-raised)] max-sm:min-h-[44px]',
+          saved ? 'text-[var(--pt-violet)]' : 'text-[var(--pt-text-3)]',
+        )}
+      >
+        <span aria-hidden="true" className="shrink-0 text-[11px]">
+          {saved ? '◆' : '+'}
+        </span>
+        <span className="min-w-0 flex-1 break-words">{saved || 'Add a note for this day'}</span>
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2 sm:flex-row">
+      <input
+        type="text"
+        value={draft}
+        maxLength={NOTE_MAX_LEN}
+        autoFocus
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.nativeEvent.isComposing) commit();
+          if (e.key === 'Escape') {
+            setDraft(saved);
+            setEditing(false);
+          }
+        }}
+        placeholder="e.g. Google OA — warmup only"
+        aria-label={`Note for ${shortDate(dateKey)}`}
+        className={cn(FIELD, 'min-w-0 flex-1 focus:[outline:2px_solid_var(--pt-violet)] max-sm:min-h-[44px]')}
+      />
+      <button
+        type="button"
+        onClick={commit}
+        className="shrink-0 rounded-md bg-[var(--pt-violet)] px-3.5 py-2 text-[13px] font-semibold text-[var(--pt-bg)] transition-opacity hover:opacity-85 max-sm:min-h-[44px]"
+      >
+        Save
+      </button>
     </div>
   );
 }

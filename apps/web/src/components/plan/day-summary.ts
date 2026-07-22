@@ -26,6 +26,8 @@ export type DaySummary = {
   trip: boolean;
   hasLog: boolean;
   milestone: string;
+  /** The user's own pinned note for this day, or '' — what the rail surfaces. */
+  note: string;
   /** How many of the three daily floors are met. */
   floorDone: number;
   /** The DSA floor was satisfied by detected solves rather than a manual tick. */
@@ -88,6 +90,7 @@ export function daySummaries(state: PlanViewState): DaySummary[] {
       trip: !!dayState?.trip,
       hasLog: !!dayState?.log,
       milestone: day.milestone ?? '',
+      note: dayState?.note ?? '',
       floorDone,
       dsaFloorAuto: !!state.floorDsaAuto[day.date],
     };

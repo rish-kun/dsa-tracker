@@ -217,6 +217,18 @@
     gap: clamp(20px, 3vw, 28px);
   }
 
+  @media (min-width: 1024px) {
+    .page {
+      max-width: 1280px;
+    }
+  }
+
+  @media (min-width: 1280px) {
+    .page {
+      max-width: 1440px;
+    }
+  }
+
   .page-header {
     display: flex;
     flex-direction: column;

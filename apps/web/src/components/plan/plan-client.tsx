@@ -7,31 +7,24 @@ import {
   addDsaExtraAction,
   saveLogAction,
   setCheckAction,
+  setNoteAction,
   setFloorAction,
   setTripAction,
   undoDsaExtraAction,
 } from '../../../app/plan/actions';
 import type { PlanDayState } from '@/lib/plan-state';
-import { CppPhases } from './cpp-phases';
-import { DsaMethod } from './dsa-method';
 import { LayoutCockpit } from './layout-cockpit';
-import { LayoutStack } from './layout-stack';
-import { LayoutTabs } from './layout-tabs';
-import { isPlanTab, type PlanTabId } from './plan-tabs';
-import { ResumeChecklist } from './resume-checklist';
-import { Schedule } from './schedule';
-import { StatRings } from './stat-rings';
-import { TodayHero } from './today-hero';
-import type { PlanLayoutProps, PlanView, PlanViewState } from './types';
+import type { PlanLayoutProps, PlanViewState } from './types';
 
 /** Mirrors MAX_DSA in lib/plan-state.ts for the manual extra counter. */
 const MAX_DSA = 150;
 
 type FloorKey = 'dsa' | 'cpp' | 'log';
 
-/** A day with no persisted row yet — every flag off, no log. */
+/** A day with no persisted row yet — every flag off, no log, no note. */
 const EMPTY_DAY: PlanDayState = {
   log: null,
+  note: null,
   floorDsa: false,
   floorCpp: false,
   floorLog: false,
@@ -43,6 +36,7 @@ type OptimisticAction =
   | { kind: 'floor'; date: string; which: FloorKey; value: boolean }
   | { kind: 'trip'; date: string; value: boolean }
   | { kind: 'log'; date: string; text: string }
+  | { kind: 'note'; date: string; text: string }
   | { kind: 'addExtra'; n: number }
   | { kind: 'undoExtra' };
 
@@ -108,6 +102,13 @@ function planReducer(state: PlanViewState, action: OptimisticAction): PlanViewSt
         floorLog: true,
       }));
 
+    case 'note':
+      // Unlike the log, a note claims no floor — it is an annotation, not work.
+      return patchDay(state, action.date, (day) => ({
+        ...day,
+        note: action.text || null,
+      }));
+
     case 'addExtra': {
       const c = state.counters;
       return {
@@ -145,10 +146,7 @@ type Props = {
   state: PlanViewState;
   daysLeft: number;
   cppDone: number;
-  /** Which candidate layout to render. Evaluation scaffolding — see types.ts. */
-  view: PlanView;
-  /** `?tab=` for layout B and `?d=` for layout C — initial values only. */
-  initialTab?: string;
+  /** `?d=` — the initially selected day. Seed value only.  */
   initialSelected?: string;
 };
 
@@ -159,7 +157,7 @@ type Props = {
  * action rolls its optimistic entry back automatically — all this has to do is
  * catch it so it never surfaces as an unhandled rejection.
  */
-export function PlanClient({ state, daysLeft, cppDone, view, initialTab, initialSelected }: Props) {
+export function PlanClient({ state, daysLeft, cppDone, initialSelected }: Props) {
   const router = useRouter();
   const [optimistic, applyOptimistic] = useOptimistic(state, planReducer);
   const [isPending, startTransition] = useTransition();
@@ -167,9 +165,9 @@ export function PlanClient({ state, daysLeft, cppDone, view, initialTab, initial
   const refreshQueued = useRef(false);
   const lastRefreshAt = useRef(0);
 
-  // Input drafts live here, not in the panel that renders them: layout B
-  // unmounts panes and layout C swaps the panel between days, either of which
-  // would silently eat a half-typed log if the state sat one level down.
+  // The log draft lives here, not in the panel that renders it: the panel is
+  // reused across days and remounts when the selection changes, which would
+  // silently eat a half-typed log if the state sat one level down.
   const [logInput, setLogInput] = useState('');
   const [extraInput, setExtraInput] = useState('');
 
@@ -247,12 +245,14 @@ export function PlanClient({ state, daysLeft, cppDone, view, initialTab, initial
   const onSaveLog = (date: string, text: string) =>
     run({ kind: 'log', date, text }, () => saveLogAction(date, text));
 
+  const onSaveNote = (date: string, text: string) =>
+    run({ kind: 'note', date, text }, () => setNoteAction(date, text));
+
   const onAddDsaExtra = (n: number) =>
     run({ kind: 'addExtra', n }, () => addDsaExtraAction(n));
   const onUndoDsaExtra = () => run({ kind: 'undoExtra' }, () => undoDsaExtraAction());
 
-  // Identical for every shell: swapping layouts is a render-time choice and
-  // nothing else. No shell owns data or talks to a Server Action directly.
+  // The shell owns no data and never talks to a Server Action directly.
   const layoutProps: PlanLayoutProps = {
     state: optimistic,
     daysLeft,
@@ -261,6 +261,7 @@ export function PlanClient({ state, daysLeft, cppDone, view, initialTab, initial
     onToggleFloor,
     onToggleTrip,
     onSaveLog,
+    onSaveNote,
     onAddDsaExtra,
     onUndoDsaExtra,
     logInput,
@@ -268,9 +269,6 @@ export function PlanClient({ state, daysLeft, cppDone, view, initialTab, initial
     extraInput,
     setExtraInput,
   };
-
-  const defaultTab: PlanTabId = 'today';
-  const tabSeed: PlanTabId = isPlanTab(initialTab) ? initialTab : defaultTab;
 
   return (
     <div aria-busy={isPending}>
@@ -292,48 +290,7 @@ export function PlanClient({ state, daysLeft, cppDone, view, initialTab, initial
         </div>
       )}
 
-      {view === 'a' && <LayoutStack {...layoutProps} />}
-
-      {view === 'b' && (
-        <LayoutTabs {...layoutProps} initialTab={tabSeed} defaultTab={defaultTab} />
-      )}
-
-      {view === 'c' && <LayoutCockpit {...layoutProps} initialSelected={initialSelected} />}
-
-      {/* The layout that shipped before this comparison, kept verbatim as the
-          baseline the three candidates are judged against. TodayHero is frozen
-          for exactly this reason — the candidates use the composable pieces in
-          day-parts.tsx instead. */}
-      {view === 'now' && (
-        <>
-          <StatRings
-            dsaCount={optimistic.neetcode150Solved}
-            dsaExtra={optimistic.counters.dsaExtra}
-            cppDone={cppDoneNow}
-            streak={optimistic.streak}
-            daysLeft={daysLeft}
-          />
-
-          <TodayHero
-            state={optimistic}
-            todayKey={todayKey}
-            onToggleCheck={onToggleCheck}
-            onToggleFloor={onToggleFloor}
-            onToggleTrip={onToggleTrip}
-            onAddDsaExtra={onAddDsaExtra}
-            onUndoDsaExtra={onUndoDsaExtra}
-            onSaveLog={(text) => onSaveLog(todayKey, text)}
-          />
-
-          <CppPhases state={optimistic} onToggleCheck={onToggleCheck} />
-
-          <DsaMethod />
-
-          <Schedule state={optimistic} todayKey={todayKey} onToggleCheck={onToggleCheck} />
-
-          <ResumeChecklist state={optimistic} onToggleCheck={onToggleCheck} />
-        </>
-      )}
+      <LayoutCockpit {...layoutProps} initialSelected={initialSelected} />
     </div>
   );
 }

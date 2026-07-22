@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useSearchParams } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { useTheme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 
@@ -50,25 +50,14 @@ function MoonIcon() {
 
 export function NavBar() {
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const { theme, toggle } = useTheme();
-
-  // `/plan?view=c` (the cockpit layout) is the one page wider than the site's
-  // 1000px column; the nav has to match it or the wordmark sits visibly inset
-  // from the content edge. Temporary, alongside the layout comparison.
-  const wide = pathname.startsWith('/plan') && searchParams.get('view') === 'c';
 
   return (
     <header className="sticky top-0 z-10 border-b border-[var(--pt-border)] bg-[var(--pt-bg)]">
       {/* flex-wrap is the safety net: below ~330px of usable width the nav group
           drops to a second line instead of pushing the page into a horizontal
           scroll. The tightened mobile metrics below keep it on one line at 360. */}
-      <div
-        className={cn(
-          'mx-auto flex max-w-[1000px] flex-wrap items-center justify-between gap-x-1 gap-y-2 px-[clamp(16px,4vw,32px)] py-[18px] sm:gap-x-2',
-          wide && 'lg:max-w-[1280px] xl:max-w-[1440px]',
-        )}
-      >
+      <div className="mx-auto flex max-w-[1000px] flex-wrap items-center justify-between gap-x-1 gap-y-2 px-[clamp(16px,4vw,32px)] py-[18px] sm:gap-x-2 lg:max-w-[1280px] xl:max-w-[1440px]">
         <Link
           href="/"
           className="inline-flex shrink-0 font-mono text-[14px] font-semibold tracking-[-0.02em] no-underline sm:text-[17px]"
