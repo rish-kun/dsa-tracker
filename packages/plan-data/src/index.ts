@@ -281,6 +281,21 @@ export const checkId = {
   resume: (text: string) => `resume:${slugify(text).slice(0, 48)}`,
 }
 
+/**
+ * Public URL for a plan problem, or `null` when there is nowhere to send the
+ * user. Derived from `canonicalKey`, which `scripts/resolve-plan-keys.ts`
+ * populates for the 67 of 72 problems that carry an `LC <number>` prefix — the
+ * 5 `(Striver)` entries have no LeetCode equivalent and return `null`.
+ *
+ * Keys are `lc:<titleSlug>`, and leetcode.com/problems/<titleSlug>/ is the
+ * canonical problem URL, so this is a pure string derivation — no lookup.
+ */
+export function problemUrl(p: DsaProblem): string | null {
+  const key = p.canonicalKey
+  if (!key || !key.startsWith("lc:")) return null
+  return `https://leetcode.com/problems/${key.slice(3)}/`
+}
+
 /** Local-date 'YYYY-MM-DD'. MUST NOT use toISOString() — that is UTC and rolls over at the wrong time. */
 export function localDateKey(d: Date = new Date()): string {
   const y = d.getFullYear()

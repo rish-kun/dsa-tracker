@@ -1,8 +1,14 @@
 'use client';
 
-import { DAYS, checkId } from '@dsa-tracker/plan-data';
+import { DAYS, checkId, type DsaCategory } from '@dsa-tracker/plan-data';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
+import {
+  CATEGORY_ORDER,
+  DEFAULT_OPEN_CATEGORIES,
+  ProblemCategoryGroup,
+  problemEntries,
+} from './problem-group';
 import { TaskRow } from './task-row';
 import type { PlanViewState } from './types';
 
@@ -122,6 +128,23 @@ export function TodayHero({
   const [dsaTab, setDsaTab] = useState<'neetcode' | 'extra'>('neetcode');
   const [logInput, setLogInput] = useState('');
 
+  // Same seeding rule as schedule.tsx: "new" + "revision" open, "stretch"
+  // closed. Only one day is ever rendered here, so the key is the bare category.
+  const [openCats, setOpenCats] = useState<Set<DsaCategory>>(
+    () => new Set(DEFAULT_OPEN_CATEGORIES),
+  );
+  const toggleCat = (cat: DsaCategory) =>
+    setOpenCats((prev) => {
+      const next = new Set(prev);
+      if (next.has(cat)) next.delete(cat);
+      else next.add(cat);
+      return next;
+    });
+
+  // Resolve every id once, up front. Ids come from checkId.problem — never a
+  // template literal — so they match the ones Schedule emits for the same day.
+  const todayProblems = today ? problemEntries(today.date, today.problems) : [];
+
   const floorOn = (key: FloorKey) => !!dayState?.[FLOOR_FIELD[key]];
   const floorDone = FLOOR_PILLS.filter((p) => floorOn(p.key)).length;
 
@@ -225,6 +248,30 @@ export function TodayHero({
               </p>
             )}
           </div>
+
+          {/* ── Today's problems ──
+              Nothing renders when the day has no problems[] — a day may
+              legitimately be tasks-only, and an empty kicker reads as a bug. */}
+          {todayProblems.length > 0 && (
+            <>
+              <p className={cn(MICRO, 'mb-2.5 mt-5')}>Today&apos;s problems</p>
+              <div className="space-y-2">
+                {CATEGORY_ORDER.map((cat) => (
+                  // Same component Schedule renders, keyed by the bare category
+                  // because only one day exists here.
+                  <ProblemCategoryGroup
+                    key={cat}
+                    category={cat}
+                    entries={todayProblems}
+                    state={state}
+                    open={openCats.has(cat)}
+                    onToggleOpen={() => toggleCat(cat)}
+                    onToggleCheck={onToggleCheck}
+                  />
+                ))}
+              </div>
+            </>
+          )}
 
           <p className={cn(MICRO, 'mb-2.5 mt-5')}>Daily floor</p>
           <div className="flex flex-wrap gap-2">
