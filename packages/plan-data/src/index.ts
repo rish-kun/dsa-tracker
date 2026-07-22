@@ -296,10 +296,15 @@ export function problemUrl(p: DsaProblem): string | null {
   return `https://leetcode.com/problems/${key.slice(3)}/`
 }
 
+/** The plan owner's calendar zone, independent of the browser/server runtime zone. */
+export const PLAN_TZ = "Asia/Kolkata"
+
 /** Local-date 'YYYY-MM-DD'. MUST NOT use toISOString() — that is UTC and rolls over at the wrong time. */
 export function localDateKey(d: Date = new Date()): string {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, "0")
-  const day = String(d.getDate()).padStart(2, "0")
-  return `${y}-${m}-${day}`
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: PLAN_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d)
 }

@@ -2,7 +2,8 @@ import { DAYS, PHASES, checkId, localDateKey } from '@dsa-tracker/plan-data';
 import type { Metadata } from 'next';
 import { PlanClient } from '@/components/plan/plan-client';
 import type { PlanViewState } from '@/components/plan/types';
-import { getPlanState, getPlanStreak, getSolvedKeySet } from '@/lib/plan-state';
+import type { PlanDayState } from '@/lib/plan-state';
+import { getLiveSolveStats, getPlanState, getPlanStreak, getSolvedKeySet } from '@/lib/plan-state';
 
 export const dynamic = 'force-dynamic';
 
@@ -64,24 +65,54 @@ function resolveChecks(
   return checks;
 }
 
+const EMPTY_DAY: PlanDayState = {
+  log: null,
+  floorDsa: false,
+  floorCpp: false,
+  floorLog: false,
+  trip: false,
+};
+
+function resolveDays(
+  manualDays: Record<string, PlanDayState>,
+  solvedPerDay: Record<string, number>,
+): { days: Record<string, PlanDayState>; floorDsaAuto: Record<string, boolean> } {
+  const days = { ...manualDays };
+  const floorDsaAuto: Record<string, boolean> = {};
+
+  for (const [date, count] of Object.entries(solvedPerDay)) {
+    if (count < 4) continue;
+    floorDsaAuto[date] = true;
+    const manual = manualDays[date] ?? EMPTY_DAY;
+    days[date] = { ...manual, floorDsa: true };
+  }
+
+  return { days, floorDsaAuto };
+}
+
 export default async function PlanPage() {
   // Sequential, never Promise.all: the postgres.js client is deliberately
   // max: 1 and a concurrent fan-out stalls the Supabase transaction pooler.
   // Every read degrades to empty state, so this renders without a database.
   const planState = await getPlanState();
   const solvedKeys = await getSolvedKeySet();
-  const streak = await getPlanStreak();
+  const liveStats = await getLiveSolveStats();
+  const streak = await getPlanStreak(liveStats.solvedPerDay);
 
   const todayKey = localDateKey();
   const manual = planState.checks;
   const autoSolved = deriveAutoSolved(solvedKeys);
+  const resolvedDays = resolveDays(planState.days, liveStats.solvedPerDay);
 
   const state: PlanViewState = {
     checks: resolveChecks(manual, autoSolved),
     manual,
     autoSolved,
-    days: planState.days,
+    days: resolvedDays.days,
+    floorDsaAuto: resolvedDays.floorDsaAuto,
     counters: planState.counters,
+    liveSolvedTotal: liveStats.liveSolvedTotal,
+    solvedPerDay: liveStats.solvedPerDay,
     streak,
     todayKey,
   };

@@ -1,6 +1,6 @@
-import { localDateKey } from '@dsa-tracker/plan-data';
+import { DAYS, PLAN_TZ, localDateKey } from '@dsa-tracker/plan-data';
 import { eq, gte, sql } from 'drizzle-orm';
-import { db, planChecks, planCounters, planDays, solvedProblems } from '@/db';
+import { db, planChecks, planCounters, planDays, solvedProblems, solveEvents } from '@/db';
 import { publicErrorMessage } from '@/lib/api-error';
 
 /** The plan_counters table holds exactly one row, keyed by this id. */
@@ -34,6 +34,11 @@ export type PlanState = {
   checks: Record<string, boolean>;
   days: Record<string, PlanDayState>;
   counters: PlanCounters;
+};
+
+export type LiveSolveStats = {
+  liveSolvedTotal: number;
+  solvedPerDay: Record<string, number>;
 };
 
 /**
@@ -150,6 +155,46 @@ export async function getSolvedKeySet(): Promise<Set<string>> {
   }
 }
 
+type LiveSolveStatsRow = {
+  liveSolvedTotal: number;
+  solvedPerDay: Record<string, number>;
+};
+
+/**
+ * Distinct, genuinely live solves for the hybrid counter and daily DSA floor.
+ * Backfills/imports deliberately do not count: their event timestamps describe
+ * the import, not the day the problem was solved.
+ */
+export async function getLiveSolveStats(): Promise<LiveSolveStats> {
+  try {
+    const rows = await db.execute<LiveSolveStatsRow>(sql`
+      select
+        (select count(distinct total.canonical_key)::int
+         from ${solveEvents} total
+         where total.detected <> 'backfill'
+           and (total.created_at at time zone ${PLAN_TZ})::date >= ${DAYS[0].date}::date
+        ) as "liveSolvedTotal",
+        coalesce(
+          (select json_object_agg(per_day.day, per_day.n)
+           from (
+             select
+               to_char(day_events.created_at at time zone ${PLAN_TZ}, 'YYYY-MM-DD') as day,
+               count(distinct day_events.canonical_key)::int as n
+             from ${solveEvents} day_events
+             where day_events.detected <> 'backfill'
+             group by 1
+           ) per_day),
+          '{}'::json
+        ) as "solvedPerDay"
+    `);
+
+    return rows[0] ?? { liveSolvedTotal: 0, solvedPerDay: {} };
+  } catch (err) {
+    console.error(`getLiveSolveStats failed, returning empty stats: ${publicErrorMessage(err)}`);
+    return { liveSolvedTotal: 0, solvedPerDay: {} };
+  }
+}
+
 /**
  * Consecutive-day streak, ported from calcStreak in _source-dsa-track/lib/store.ts:
  * walk back from today up to 60 days; a day counts when it is a trip day or all
@@ -157,7 +202,7 @@ export async function getSolvedKeySet(): Promise<Set<string>> {
  *
  * One windowed query plus an in-memory walk — never 60 round trips.
  */
-export async function getPlanStreak(): Promise<number> {
+export async function getPlanStreak(solvedPerDay: Record<string, number> = {}): Promise<number> {
   try {
     const cursor = new Date();
     const windowStart = new Date();
@@ -181,7 +226,8 @@ export async function getPlanStreak(): Promise<number> {
     let isToday = true;
     for (let i = 0; i < STREAK_WINDOW_DAYS; i++) {
       const row = byDate.get(localDateKey(cursor));
-      const ok = Boolean(row && (row.trip || (row.floorDsa && row.floorCpp && row.floorLog)));
+      const floorDsa = Boolean(row?.floorDsa || (solvedPerDay[localDateKey(cursor)] ?? 0) >= DSA_FLOOR);
+      const ok = Boolean(row && (row.trip || (floorDsa && row.floorCpp && row.floorLog)));
       if (ok) {
         streak++;
       } else if (!isToday) {

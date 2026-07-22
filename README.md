@@ -13,7 +13,7 @@ study plan that ticks itself off as you solve.
 | Route | What it is |
 |---|---|
 | `/` | Dashboard — totals, difficulty/source breakdown, solves over time, recent activity |
-| `/plan` | 26-day study plan — daily tasks, per-day log, C++ phase milestones, resume checklist, manual counters, streak. **LeetCode problems in the plan tick themselves** the moment the extension records that solve; a manual tick or untick always overrides |
+| `/plan` | 26-day study plan — daily tasks, per-day log, C++ phase milestones, resume checklist, hybrid counters, streak. **LeetCode problems in the plan tick themselves** after the extension records a solve; an already-open plan refreshes when its tab regains focus |
 | `/problems` | Full solved-problem table — every canonical key with its title, difficulty, source, and first-solve date |
 
 ### Workspaces
@@ -56,13 +56,10 @@ pnpm db:migrate   # creates the tables
 pnpm db:seed      # imports the full LeetCode problem catalog (~3,700 problems)
 ```
 
-> **Two migrations are unapplied.** `apps/web/drizzle/` holds three:
-> `0000_charming_red_hulk` (`problems`, `solved_problems`, `solve_events`) was
-> applied before the merge; `0001_easy_toxin` (`plan_checks`, `plan_days`,
-> `plan_counters`) and `0002_curly_bloodstorm` (index changes on `problems` /
-> `solve_events`) have **not been applied to any database**. `/plan` still
-> renders — every read degrades to empty state — but the first tick, log, or
-> counter write will fail until you run `pnpm db:migrate`.
+> **All three migrations are applied** to the project Supabase database:
+> `0000_charming_red_hulk`, `0001_easy_toxin`, and `0002_curly_bloodstorm`.
+> A fresh database still needs `pnpm db:migrate`; `/plan` reads degrade to an
+> empty state when its database is unavailable so builds can run offline.
 > To carry over state from the old standalone plan app, see
 > [`docs/plan-migration.md`](docs/plan-migration.md) (`pnpm plan:migrate`,
 > dry run by default, writes require `--commit`).

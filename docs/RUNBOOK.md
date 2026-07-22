@@ -116,15 +116,17 @@ configured by `apps/web/drizzle.config.ts`.)
 
 ### What is in the migration folder
 
-`apps/web/drizzle/` holds exactly two migrations:
+`apps/web/drizzle/` holds three migrations, all applied to the project database:
 
 | File | Contents | State |
 | --- | --- | --- |
-| `0000_charming_red_hulk.sql` | `problems`, `solved_problems`, `solve_events` + their FK and indexes | **already applied** before the merge |
-| `0001_easy_toxin.sql` | `plan_checks`, `plan_days`, `plan_counters` | **NEW — unapplied. This is what the command applies.** |
+| `0000_charming_red_hulk.sql` | `problems`, `solved_problems`, `solve_events` + their FK and indexes | **applied** |
+| `0001_easy_toxin.sql` | `plan_checks`, `plan_days`, `plan_counters` | **applied** |
+| `0002_curly_bloodstorm.sql` | catalog-resolution and solve-event index changes | **applied** |
 
 drizzle-kit tracks applied migrations in its own `drizzle.__drizzle_migrations`
-table, so `0000` is skipped automatically and re-running the command is a no-op.
+table, so applied migrations are skipped automatically and re-running the
+command is a no-op.
 
 ### What `0001` does and does not do
 

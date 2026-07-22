@@ -5,7 +5,7 @@ import type {
   Totals,
 } from '@dsa-tracker/shared';
 import { desc, eq, or, sql } from 'drizzle-orm';
-import { db, problems, solvedProblems, solveEvents } from '@/db';
+import { db, planChecks, problems, solvedProblems, solveEvents } from '@/db';
 
 type SolvedRow = typeof solvedProblems.$inferSelect;
 type ProblemRow = typeof problems.$inferSelect;
@@ -265,6 +265,15 @@ export async function recordSolve(req: SolveRequest): Promise<{
       url: req.url,
       detected: req.detected,
     });
+
+    // A manual false override may intentionally hide an older derived solve,
+    // but a fresh live solve should win. Match every dated plan occurrence of
+    // the final server-authoritative key; bulk history must not clear overrides.
+    if (req.detected !== 'backfill') {
+      await tx
+        .delete(planChecks)
+        .where(sql`${planChecks.done} = false and ${planChecks.checkId} like ${`prob:%:${canonicalKey}`}`);
+    }
 
     // Authoritative row and its first-source URL in one statement. Previously
     // this was two reads (and three on a repeat solve, which also had to

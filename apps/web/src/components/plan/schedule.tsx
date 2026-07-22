@@ -106,6 +106,7 @@ export function Schedule({ state, todayKey, onToggleCheck }: Props) {
                 const doneProblems = problems.filter(({ id }) => state.checks[id]).length;
                 const doneTotal = doneTasks + doneProblems;
                 const allDone = totalItems > 0 && doneTotal === totalItems;
+                const dsaFloorAuto = !!state.floorDsaAuto[day.date];
 
                 return (
                   <div
@@ -149,6 +150,11 @@ export function Schedule({ state, todayKey, onToggleCheck }: Props) {
                       </span>
 
                       <div className="flex shrink-0 items-center gap-3">
+                        {dsaFloorAuto && (
+                          <span className="rounded px-1.5 py-[2px] font-mono text-[9px] font-bold uppercase tracking-[0.05em] bg-[var(--pt-blue-bg)] text-[var(--pt-blue)] sm:px-2 sm:text-[10px]">
+                            <span className="hidden sm:inline">DSA floor · </span>auto
+                          </span>
+                        )}
                         {day.milestone && (
                           <span className="hidden rounded px-2 py-[2px] text-[11px] font-medium bg-[var(--pt-violet-bg)] text-[var(--pt-violet)] sm:inline">
                             {day.milestone}
@@ -172,7 +178,6 @@ export function Schedule({ state, todayKey, onToggleCheck }: Props) {
                             </span>
                           </div>
                         )}
-
                         {/* non-DSA tasks — ids from checkId.task, identical to
                             the ones TodayHero writes for the same day. */}
                         {day.tasks.length > 0 && (

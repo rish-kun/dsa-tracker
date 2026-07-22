@@ -122,6 +122,8 @@ export function TodayHero({
   const today = DAYS.find((d) => d.date === todayKey) ?? null;
   const dayState = state.days[todayKey];
   const isTripDay = !!dayState?.trip;
+  const liveSolvedToday = state.solvedPerDay[todayKey] ?? 0;
+  const dsaFloorAuto = !!state.floorDsaAuto[todayKey];
 
   const [dsaInput, setDsaInput] = useState('');
   const [extraInput, setExtraInput] = useState('');
@@ -300,6 +302,11 @@ export function TodayHero({
                     )}
                   />
                   {label}
+                  {key === 'dsa' && (
+                    <span className="font-mono text-[10px] font-normal tabular-nums opacity-75">
+                      {liveSolvedToday}/4{dsaFloorAuto ? ' · auto' : ''}
+                    </span>
+                  )}
                 </button>
               );
             })}

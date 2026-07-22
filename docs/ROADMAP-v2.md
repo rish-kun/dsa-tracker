@@ -808,10 +808,10 @@ Notes that will bite:
   `where p.id = 'singleton'` becomes `where p.user_id = $userId`, including the
   one embedded in `getPlanState`'s raw SQL and the `.where(eq(planCounters.id,
   COUNTERS_ID))` in `popCounter`.
-- **Order matters against the unapplied migrations.** `0001_easy_toxin` has
-  never run. Apply `0000`/`0001`/`0002` first, verify, *then* generate the auth
-  migrations on top. Generating auth SQL against a schema state that never
-  existed in the database will produce a migration chain that cannot be replayed.
+- **Order matters against the existing migrations.** `0000`/`0001`/`0002` are
+  applied; generate future auth migrations on top of that verified schema.
+  Generating auth SQL against a different schema state will produce a migration
+  chain that cannot be replayed.
 - **New table for extension credentials** (see [B.4](#b4-the-extension-is-the-hard-part)):
 
   ```sql

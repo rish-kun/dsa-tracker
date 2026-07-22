@@ -1,7 +1,8 @@
 'use client';
 
 import { PHASES, checkId } from '@dsa-tracker/plan-data';
-import { useOptimistic, useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
+import { useEffect, useOptimistic, useRef, useState, useTransition } from 'react';
 import {
   addDsaAction,
   addDsaExtraAction,
@@ -90,7 +91,13 @@ function planReducer(state: PlanViewState, action: OptimisticAction): PlanViewSt
       };
 
     case 'floor':
-      return patchDay(state, action.date, (day) => withFloor(day, action.which, action.value));
+      return patchDay(state, action.date, (day) =>
+        withFloor(
+          day,
+          action.which,
+          action.which === 'dsa' && state.floorDsaAuto[action.date] ? true : action.value,
+        ),
+      );
 
     case 'trip':
       return patchDay(state, action.date, (day) => ({ ...day, trip: action.value }));
@@ -169,9 +176,42 @@ type Props = {
  * catch it so it never surfaces as an unhandled rejection.
  */
 export function PlanClient({ state, daysLeft, cppDone }: Props) {
+  const router = useRouter();
   const [optimistic, applyOptimistic] = useOptimistic(state, planReducer);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const refreshQueued = useRef(false);
+  const lastRefreshAt = useRef(0);
+
+  // Extension writes happen outside this React tree. Revalidate when the user
+  // returns to the plan tab so newly detected solves appear without polling.
+  // A short dedupe window plus a queued microtask coalesces the focus +
+  // visibilitychange pair browsers commonly emit together into one refresh.
+  useEffect(() => {
+    const refreshWhenVisible = () => {
+      const now = Date.now();
+      if (
+        document.visibilityState !== 'visible' ||
+        refreshQueued.current ||
+        now - lastRefreshAt.current < 250
+      ) {
+        return;
+      }
+      refreshQueued.current = true;
+      lastRefreshAt.current = now;
+      queueMicrotask(() => {
+        router.refresh();
+        refreshQueued.current = false;
+      });
+    };
+
+    window.addEventListener('focus', refreshWhenVisible);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      window.removeEventListener('focus', refreshWhenVisible);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
+  }, [router]);
 
   const run = (action: OptimisticAction, send: () => Promise<void>) => {
     startTransition(async () => {
@@ -242,7 +282,7 @@ export function PlanClient({ state, daysLeft, cppDone }: Props) {
       )}
 
       <StatRings
-        dsaCount={optimistic.counters.dsa}
+        dsaCount={optimistic.liveSolvedTotal + optimistic.counters.dsa}
         dsaExtra={optimistic.counters.dsaExtra}
         cppDone={cppDoneNow}
         streak={optimistic.streak}

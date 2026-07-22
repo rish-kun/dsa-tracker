@@ -158,13 +158,16 @@ index in that day's `tasks[]`). Inserting or reordering a task inside a day
 silently re-points every later task's id at a different label. Append to the
 end of a day's `tasks[]`; if you must reorder, accept that the ticks shift.
 
-The only legal place a raw `prob:` string appears is `dsaSolvedOn` in
-`src/lib/plan-state.ts`, and it is a `LIKE 'prob:<date>:%'` **prefix pattern**,
-not a constructed id.
+The only legal raw `prob:` strings are SQL `LIKE` patterns: the
+`dsaSolvedOn` date prefix in `src/lib/plan-state.ts` and `recordSolve`'s
+canonical-key suffix cleanup in `src/lib/queries.ts`. Neither constructs a
+check id; all actual ids still come from `checkId.problem`.
 
 `slugify` is lowercase → non-alphanumerics to `-` → collapse → trim.
-`localDateKey` gives local `YYYY-MM-DD` — use it, never `toISOString()`, which
-is UTC and rolls the day over at the wrong local time.
+`PLAN_TZ` is `Asia/Kolkata`, and `localDateKey` gives the plan owner's
+`YYYY-MM-DD` in that zone regardless of the browser/server runtime — use it,
+never `toISOString()`, which is UTC and rolls the day over at the wrong local
+time.
 
 **Three new tables** (`apps/web/src/db/schema.ts`, migration
 `apps/web/drizzle/0001_easy_toxin.sql`), real column names:
@@ -178,12 +181,9 @@ is UTC and rolls the day over at the wrong local time.
   `dsa_extra` integers default 0, `dsa_hist` / `dsa_extra_hist` jsonb default
   `'[]'` (undo stacks of raw increments).
 
-> ⚠️ **Migration `0001_easy_toxin` has NOT been applied to any database yet.**
-> It exists only as SQL plus its journal entry. Nothing has run `pnpm
-> db:migrate` against Supabase, so the three `plan_*` tables do not exist in
-> production or in any dev database. Every `/plan` read degrades to empty
-> state, so the page still renders; the first *write* will fail until the
-> migration is applied. See `docs/plan-migration.md`.
+All three migrations (`0000`–`0002`) are applied to the Supabase database.
+The defensive `/plan` read fallbacks still matter for builds and temporary DB
+outages, but writes are expected to work without further migration setup.
 
 **Auto-tick rule** (`app/plan/page.tsx`, `resolveChecks`):
 
@@ -198,7 +198,9 @@ never `false`.
 
 **It must stay `??`, never `||`.** `??` is what lets a manual explicit `false`
 survive and untick something the extension detected; `||` would let the derived
-`true` win and make an untick impossible.
+`true` win and make an untick impossible. A later live solve of that same
+canonical key clears matching false overrides inside `recordSolve`, so the
+fresh solve becomes authoritative; backfills never clear them.
 
 `plan_checks` holds **explicit overrides only** — absence of a row is not
 "unchecked", it means "derive it". So an unticked LeetCode problem shows as
@@ -208,6 +210,13 @@ unticks. Never backfill `plan_checks` from `solved_problems` — that would
 freeze the derivation and break future auto-ticks. The page hands the client
 all three maps (`checks` resolved, plus `manual` and `autoSolved`) purely so
 the UI can show *why* a row is ticked; components never re-derive.
+
+The plan's DSA ring and daily DSA floor derive only from distinct
+`solve_events.canonical_key` values where `detected <> 'backfill'`; import
+timestamps are not solve dates. Events are bucketed in `PLAN_TZ`. The ring adds
+the persisted `plan_counters.dsa` manual adjustment, while a day reaches its
+DSA floor when its manual flag is true or it has at least 4 live solves. An open
+plan refreshes these server-derived values when its tab regains focus.
 
 **Mutations use Server Actions.** Plan writes (ticks, floors, trip, day logs,
 counters) go through `app/plan/actions.ts` — thin wrappers that call
