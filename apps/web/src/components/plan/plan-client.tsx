@@ -4,13 +4,11 @@ import { PHASES, checkId } from '@dsa-tracker/plan-data';
 import { useRouter } from 'next/navigation';
 import { useEffect, useOptimistic, useRef, useState, useTransition } from 'react';
 import {
-  addDsaAction,
   addDsaExtraAction,
   saveLogAction,
   setCheckAction,
   setFloorAction,
   setTripAction,
-  undoDsaAction,
   undoDsaExtraAction,
 } from '../../../app/plan/actions';
 import type { PlanDayState } from '@/lib/plan-state';
@@ -22,14 +20,10 @@ import { StatRings } from './stat-rings';
 import { TodayHero } from './today-hero';
 import type { PlanViewState } from './types';
 
-/** Mirrors MAX_DSA in lib/plan-state.ts — both counters clamp to NeetCode 150. */
+/** Mirrors MAX_DSA in lib/plan-state.ts for the manual extra counter. */
 const MAX_DSA = 150;
 
-/** Mirrors DSA_FLOOR in lib/plan-state.ts. */
-const DSA_FLOOR = 4;
-
 type FloorKey = 'dsa' | 'cpp' | 'log';
-type CounterKey = 'dsa' | 'extra';
 
 /** A day with no persisted row yet — every flag off, no log. */
 const EMPTY_DAY: PlanDayState = {
@@ -45,8 +39,8 @@ type OptimisticAction =
   | { kind: 'floor'; date: string; which: FloorKey; value: boolean }
   | { kind: 'trip'; date: string; value: boolean }
   | { kind: 'log'; date: string; text: string }
-  | { kind: 'add'; which: CounterKey; n: number }
-  | { kind: 'undo'; which: CounterKey };
+  | { kind: 'addExtra'; n: number }
+  | { kind: 'undoExtra' };
 
 /**
  * Switch rather than a computed key so the result stays a real PlanDayState —
@@ -110,41 +104,22 @@ function planReducer(state: PlanViewState, action: OptimisticAction): PlanViewSt
         floorLog: true,
       }));
 
-    case 'add': {
+    case 'addExtra': {
       const c = state.counters;
-      const next =
-        action.which === 'dsa'
-          ? {
-              ...c,
-              dsa: Math.min(MAX_DSA, c.dsa + action.n),
-              dsaHist: [...c.dsaHist, action.n],
-            }
-          : {
-              ...c,
-              dsaExtra: Math.min(MAX_DSA, c.dsaExtra + action.n),
-              dsaExtraHist: [...c.dsaExtraHist, action.n],
-            };
-      const bumped = { ...state, counters: next };
-
-      // addDsa claims the DSA floor on an increment of 4+. addDsaExtra's rule
-      // depends on a server-side count of today's ticked problems, so that one
-      // is left to the revalidation.
-      return action.which === 'dsa' && action.n >= DSA_FLOOR
-        ? patchDay(bumped, bumped.todayKey, (day) => ({ ...day, floorDsa: true }))
-        : bumped;
+      return {
+        ...state,
+        counters: {
+          ...c,
+          dsaExtra: Math.min(MAX_DSA, c.dsaExtra + action.n),
+          dsaExtraHist: [...c.dsaExtraHist, action.n],
+        },
+      };
     }
 
-    case 'undo': {
+    case 'undoExtra': {
       const c = state.counters;
       // Pop the last increment and subtract it — the counter floors at 0
       // because history keeps the un-clamped value.
-      if (action.which === 'dsa') {
-        const last = c.dsaHist.at(-1) ?? 0;
-        return {
-          ...state,
-          counters: { ...c, dsa: Math.max(0, c.dsa - last), dsaHist: c.dsaHist.slice(0, -1) },
-        };
-      }
       const last = c.dsaExtraHist.at(-1) ?? 0;
       return {
         ...state,
@@ -255,11 +230,9 @@ export function PlanClient({ state, daysLeft, cppDone }: Props) {
   const onSaveLog = (text: string) =>
     run({ kind: 'log', date: todayKey, text }, () => saveLogAction(todayKey, text));
 
-  const onAddDsa = (n: number) => run({ kind: 'add', which: 'dsa', n }, () => addDsaAction(n));
-  const onUndoDsa = () => run({ kind: 'undo', which: 'dsa' }, () => undoDsaAction());
   const onAddDsaExtra = (n: number) =>
-    run({ kind: 'add', which: 'extra', n }, () => addDsaExtraAction(n));
-  const onUndoDsaExtra = () => run({ kind: 'undo', which: 'extra' }, () => undoDsaExtraAction());
+    run({ kind: 'addExtra', n }, () => addDsaExtraAction(n));
+  const onUndoDsaExtra = () => run({ kind: 'undoExtra' }, () => undoDsaExtraAction());
 
   return (
     <div aria-busy={isPending}>
@@ -282,7 +255,7 @@ export function PlanClient({ state, daysLeft, cppDone }: Props) {
       )}
 
       <StatRings
-        dsaCount={optimistic.liveSolvedTotal + optimistic.counters.dsa}
+        dsaCount={optimistic.neetcode150Solved}
         dsaExtra={optimistic.counters.dsaExtra}
         cppDone={cppDoneNow}
         streak={optimistic.streak}
@@ -295,8 +268,6 @@ export function PlanClient({ state, daysLeft, cppDone }: Props) {
         onToggleCheck={onToggleCheck}
         onToggleFloor={onToggleFloor}
         onToggleTrip={onToggleTrip}
-        onAddDsa={onAddDsa}
-        onUndoDsa={onUndoDsa}
         onAddDsaExtra={onAddDsaExtra}
         onUndoDsaExtra={onUndoDsaExtra}
         onSaveLog={onSaveLog}

@@ -16,8 +16,8 @@ export type PlanViewState = {
   manual: Record<string, boolean>;
   /** checkId -> true when the tick came from a real detected solve. */
   autoSolved: Record<string, boolean>;
-  /** Distinct live solves since the plan began (bulk imports excluded). */
-  liveSolvedTotal: number;
+  /** Unique solved keys that belong to the canonical NeetCode 150 set. */
+  neetcode150Solved: number;
   /** Local plan date -> distinct live solves detected on that date. */
   solvedPerDay: Record<string, number>;
   /** Date -> true when its DSA floor is satisfied by live solve activity. */

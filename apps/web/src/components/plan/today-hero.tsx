@@ -12,7 +12,7 @@ import {
 import { TaskRow } from './task-row';
 import type { PlanViewState } from './types';
 
-/** NeetCode 150 / the matching "extra" ladder — both counters share the ceiling. */
+/** Manual extra-problem ladder ceiling. */
 const DSA_TARGET = 150;
 
 /** Trip days budgeted for the whole plan. */
@@ -63,28 +63,6 @@ const FLOOR_PILLS: {
   },
 ];
 
-const TABS = [
-  {
-    key: 'neetcode' as const,
-    label: 'NeetCode',
-    text: 'text-[var(--pt-blue)]',
-    chip: 'bg-[var(--pt-blue-bg)] text-[var(--pt-blue)]',
-    // Matches `.search-input:focus` — a 2px inset accent outline, not a border swap.
-    focus: 'focus:[outline:2px_solid_var(--pt-blue)]',
-    button: 'bg-[var(--pt-blue)]',
-    left: 'left in NeetCode',
-  },
-  {
-    key: 'extra' as const,
-    label: 'Extra',
-    text: 'text-[var(--pt-violet)]',
-    chip: 'bg-[var(--pt-violet-bg)] text-[var(--pt-violet)]',
-    focus: 'focus:[outline:2px_solid_var(--pt-violet)]',
-    button: 'bg-[var(--pt-violet)]',
-    left: 'left in extra',
-  },
-];
-
 /**
  * Recessed input well. `--pt-surface-2` is deliberate here and *only* here (plus
  * the tab track below): it is darker than `--pt-surface` in both modes, which is
@@ -100,8 +78,6 @@ type Props = {
   onToggleCheck: (id: string, val: boolean) => void;
   onToggleFloor: (date: string, which: FloorKey) => void;
   onToggleTrip: (date: string) => void;
-  onAddDsa: (n: number) => void;
-  onUndoDsa: () => void;
   onAddDsaExtra: (n: number) => void;
   onUndoDsaExtra: () => void;
   onSaveLog: (text: string) => void;
@@ -113,8 +89,6 @@ export function TodayHero({
   onToggleCheck,
   onToggleFloor,
   onToggleTrip,
-  onAddDsa,
-  onUndoDsa,
   onAddDsaExtra,
   onUndoDsaExtra,
   onSaveLog,
@@ -125,9 +99,7 @@ export function TodayHero({
   const liveSolvedToday = state.solvedPerDay[todayKey] ?? 0;
   const dsaFloorAuto = !!state.floorDsaAuto[todayKey];
 
-  const [dsaInput, setDsaInput] = useState('');
   const [extraInput, setExtraInput] = useState('');
-  const [dsaTab, setDsaTab] = useState<'neetcode' | 'extra'>('neetcode');
   const [logInput, setLogInput] = useState('');
 
   // Same seeding rule as schedule.tsx: "new" + "revision" open, "stretch"
@@ -166,7 +138,6 @@ export function TodayHero({
       clear();
     }
   };
-  const handleAddDsa = () => submitCount(dsaInput, onAddDsa, () => setDsaInput(''));
   const handleAddExtra = () => submitCount(extraInput, onAddDsaExtra, () => setExtraInput(''));
   const handleSaveLog = () => {
     const text = logInput.trim();
@@ -175,9 +146,6 @@ export function TodayHero({
       setLogInput('');
     }
   };
-
-  const activeTab = TABS.find((t) => t.key === dsaTab) ?? TABS[0];
-  const activeCount = dsaTab === 'neetcode' ? state.counters.dsa : state.counters.dsaExtra;
 
   return (
     <section className="mb-6 overflow-hidden rounded-[10px] border border-[var(--pt-border)] bg-[var(--pt-surface)] shadow-[var(--pt-shadow-panel)]">
@@ -350,92 +318,51 @@ export function TodayHero({
           </label>
         </div>
 
-        {/* ── Right: DSA counter + log ── */}
+        {/* ── Right: manual extra counter + log ── */}
         <div className="flex flex-col gap-5">
           <div>
-            <p className={cn(MICRO, 'mb-2')}>Problems solved today</p>
-
-            {/* tab switcher */}
-            {/* recessed track (--pt-surface-2) with a raised selected pill on top */}
-            <div className="mb-3 flex w-fit max-w-full flex-wrap gap-1 rounded-md border border-[var(--pt-border)] bg-[var(--pt-surface-2)] p-0.5">
-              {TABS.map((tab) => {
-                const selected = dsaTab === tab.key;
-                const count = tab.key === 'neetcode' ? state.counters.dsa : state.counters.dsaExtra;
-                return (
-                  <button
-                    key={tab.key}
-                    type="button"
-                    onClick={() => setDsaTab(tab.key)}
-                    aria-pressed={selected}
-                    className={cn(
-                      'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-semibold transition-all',
-                      'max-sm:min-h-[40px]',
-                      selected
-                        ? cn('bg-[var(--pt-surface)] shadow-[var(--pt-shadow-panel)]', tab.text)
-                        : 'bg-transparent text-[var(--pt-text-3)]',
-                    )}
-                  >
-                    {tab.label}
-                    <span
-                      className={cn(
-                        'rounded-md px-1.5 py-0.5 font-mono text-[10px] tabular-nums',
-                        selected ? tab.chip : 'bg-transparent text-[var(--pt-text-3)]',
-                      )}
-                    >
-                      {count}/{DSA_TARGET}
-                    </span>
-                  </button>
-                );
-              })}
+            <div className="mb-2 flex items-center gap-2">
+              <p className={MICRO}>Extra-problem counter</p>
+              <span className="rounded-md bg-[var(--pt-violet-bg)] px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-[var(--pt-violet)]">
+                {state.counters.dsaExtra}/{DSA_TARGET}
+              </span>
             </div>
-
-            {/* counter input — one control, re-pointed by the active tab */}
             <div className="flex flex-wrap items-center gap-2">
               <input
                 type="number"
                 min="0"
-                value={dsaTab === 'neetcode' ? dsaInput : extraInput}
-                onChange={(e) =>
-                  dsaTab === 'neetcode' ? setDsaInput(e.target.value) : setExtraInput(e.target.value)
-                }
+                value={extraInput}
+                onChange={(e) => setExtraInput(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
-                    if (dsaTab === 'neetcode') handleAddDsa();
-                    else handleAddExtra();
-                  }
+                  if (e.key === 'Enter' && !e.nativeEvent.isComposing) handleAddExtra();
                 }}
                 placeholder="0"
-                aria-label={`Problems solved — ${activeTab.label}`}
+                aria-label="Add to extra-problem counter"
                 className={cn(
                   FIELD,
                   'w-16 font-mono tabular-nums max-sm:min-h-[44px]',
-                  activeTab.focus,
+                  'focus:[outline:2px_solid_var(--pt-violet)]',
                 )}
               />
               <button
                 type="button"
-                onClick={dsaTab === 'neetcode' ? handleAddDsa : handleAddExtra}
-                className={cn(
-                  // Ink on a *solid* accent fill is --pt-bg — it flips per mode,
-                  // where a literal `white` only worked against the light accents.
-                  'rounded-md px-3.5 py-2 text-[13px] font-semibold text-[var(--pt-bg)] transition-opacity hover:opacity-85 max-sm:min-h-[44px]',
-                  activeTab.button,
-                )}
+                onClick={handleAddExtra}
+                className="rounded-md bg-[var(--pt-violet)] px-3.5 py-2 text-[13px] font-semibold text-[var(--pt-bg)] transition-opacity hover:opacity-85 max-sm:min-h-[44px]"
               >
                 Add
               </button>
               <button
                 type="button"
-                onClick={dsaTab === 'neetcode' ? onUndoDsa : onUndoDsaExtra}
+                onClick={onUndoDsaExtra}
                 className="rounded-md border border-[var(--pt-border)] bg-transparent px-3.5 py-2 text-[13px] font-semibold text-[var(--pt-text-2)] transition-colors hover:border-[var(--pt-text-3)] hover:text-[var(--pt-text)] max-sm:min-h-[44px]"
               >
                 Undo
               </button>
               <span className="text-[11px] text-[var(--pt-text-3)]">
                 <span className="font-mono tabular-nums">
-                  {Math.max(0, DSA_TARGET - activeCount)}
+                  {Math.max(0, DSA_TARGET - state.counters.dsaExtra)}
                 </span>{' '}
-                {activeTab.left}
+                left in extra
               </span>
             </div>
           </div>

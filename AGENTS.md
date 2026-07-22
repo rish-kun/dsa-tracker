@@ -130,7 +130,7 @@ editing that file. It exports:
 - `DAYS` (26 `DayEntry`), `PHASES` (7 `PhaseEntry`), `WEEKS` (6 groupings that
   index into `DAYS`), `RESUME_ITEMS` (6 strings), `TAG_LABELS`
 - `PHASE_COUNT = PHASES.length` — use it instead of hardcoding `7`
-- `checkId`, `slugify`, `localDateKey`
+- `checkId`, `slugify`, `localDateKey`, `NEETCODE_150_KEYS`
 - types `Tag`, `DsaCategory`, `DayTask`, `DsaProblem`, `DayEntry`, `PhaseEntry`
 
 `DAYS` carries **72 problems total; 67 have a `canonicalKey`** (`lc:<slug>`,
@@ -211,12 +211,14 @@ freeze the derivation and break future auto-ticks. The page hands the client
 all three maps (`checks` resolved, plus `manual` and `autoSolved`) purely so
 the UI can show *why* a row is ticked; components never re-derive.
 
-The plan's DSA ring and daily DSA floor derive only from distinct
+The NeetCode ring is the intersection of `solved_problems` with the exact 150
+keys in `NEETCODE_150_KEYS`; off-list solves stay in the DB but never affect
+that ring, and the legacy `plan_counters.dsa` value is not used by the UI.
+Today's activity and the daily DSA floor derive from distinct
 `solve_events.canonical_key` values where `detected <> 'backfill'`; import
-timestamps are not solve dates. Events are bucketed in `PLAN_TZ`. The ring adds
-the persisted `plan_counters.dsa` manual adjustment, while a day reaches its
-DSA floor when its manual flag is true or it has at least 4 live solves. An open
-plan refreshes these server-derived values when its tab regains focus.
+timestamps are not solve dates. Events are bucketed in `PLAN_TZ`. A day reaches
+its DSA floor when its manual flag is true or it has at least 4 live solves. An
+open plan refreshes these server-derived values when its tab regains focus.
 
 **Mutations use Server Actions.** Plan writes (ticks, floors, trip, day logs,
 counters) go through `app/plan/actions.ts` — thin wrappers that call

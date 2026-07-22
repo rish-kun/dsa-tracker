@@ -136,7 +136,7 @@ export function StatRings({ dsaCount, dsaExtra, cppDone, streak, daysLeft }: Pro
               <span className="text-[var(--pt-green)]">Complete</span>
             )}
           </div>
-          <div className={cn(MICRO, 'mt-0.5')}>done Jul 18</div>
+          <div className={cn(MICRO, 'mt-0.5')}>auto from tracker</div>
         </div>
       </div>
 

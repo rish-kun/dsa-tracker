@@ -1,4 +1,10 @@
-import { DAYS, PHASES, checkId, localDateKey } from '@dsa-tracker/plan-data';
+import {
+  DAYS,
+  NEETCODE_150_KEYS,
+  PHASES,
+  checkId,
+  localDateKey,
+} from '@dsa-tracker/plan-data';
 import type { Metadata } from 'next';
 import { PlanClient } from '@/components/plan/plan-client';
 import type { PlanViewState } from '@/components/plan/types';
@@ -17,6 +23,9 @@ const TARGETS = ['DE Shaw', 'Stripe', 'Uber', 'Google', 'Oracle', 'LinkedIn', 'A
 
 /** OA season opens on this date; the header counts down to it. */
 const OA_DATE_KEY = '2026-08-01';
+
+/** Exact membership boundary for the NeetCode 150 progress ring. */
+const NEETCODE_150_KEY_SET = new Set<string>(NEETCODE_150_KEYS);
 
 /**
  * Whole days between two 'YYYY-MM-DD' keys, floored at 0.
@@ -103,6 +112,7 @@ export default async function PlanPage() {
   const manual = planState.checks;
   const autoSolved = deriveAutoSolved(solvedKeys);
   const resolvedDays = resolveDays(planState.days, liveStats.solvedPerDay);
+  const neetcode150Solved = [...solvedKeys].filter((key) => NEETCODE_150_KEY_SET.has(key)).length;
 
   const state: PlanViewState = {
     checks: resolveChecks(manual, autoSolved),
@@ -111,7 +121,7 @@ export default async function PlanPage() {
     days: resolvedDays.days,
     floorDsaAuto: resolvedDays.floorDsaAuto,
     counters: planState.counters,
-    liveSolvedTotal: liveStats.liveSolvedTotal,
+    neetcode150Solved,
     solvedPerDay: liveStats.solvedPerDay,
     streak,
     todayKey,
@@ -133,13 +143,21 @@ export default async function PlanPage() {
             </p>
           </div>
 
-          <div className="shrink-0 text-right">
-            <span className="font-mono text-[26px] font-bold tabular-nums text-[var(--pt-text)]">
-              {daysLeft}
-            </span>
-            <span className="ml-1.5 text-[11px] text-[var(--pt-text-3)]">
-              {daysLeft === 1 ? 'day left' : 'days left'}
-            </span>
+          <div className="flex shrink-0 items-end gap-5 text-right sm:gap-7">
+            <div>
+              <span className="font-mono text-[26px] font-bold tabular-nums text-[var(--pt-blue)]">
+                {liveStats.solvedPerDay[todayKey] ?? 0}
+              </span>
+              <span className="ml-1.5 text-[11px] text-[var(--pt-text-3)]">solved today</span>
+            </div>
+            <div>
+              <span className="font-mono text-[26px] font-bold tabular-nums text-[var(--pt-text)]">
+                {daysLeft}
+              </span>
+              <span className="ml-1.5 text-[11px] text-[var(--pt-text-3)]">
+                {daysLeft === 1 ? 'day left' : 'days left'}
+              </span>
+            </div>
           </div>
         </div>
 

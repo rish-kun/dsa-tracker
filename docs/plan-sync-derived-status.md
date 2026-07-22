@@ -6,7 +6,7 @@ The point of merging the planner and the extension tracker was to stop manually 
 
 What is still manual, and confirmed by the user as the remaining desync:
 
-1. **The "DSA solved" stat ring** reads `plan_counters.dsa` — a hand-entered `147` (single history entry `[147]`), not derived from real solves. User chose **hybrid**: auto-derive the base from live solves since plan start (Jul 7), keep manual `+N` for untracked extras.
+1. **The "DSA solved" stat ring** must count only unique solved problems in the official NeetCode 150 set. All other solves remain stored but do not affect this ring.
 2. **The daily DSA floor (4/day)** is a manual toggle; solving 4+ problems on tracked sites doesn't claim it.
 3. Sync stays **one-way** (tracker → plan). Manual plan ticks never write `solved_problems`.
 4. An already-open plan must refresh derived tracker state when its tab regains focus; no polling is required.
@@ -31,28 +31,28 @@ Key data facts that shape the design:
 Add a read (never-throws contract, same as the others):
 
 ```ts
-export type LiveSolveStats = { liveSolvedTotal: number; solvedPerDay: Record<string, number> };
+export type LiveSolveStats = { solvedPerDay: Record<string, number> };
 export async function getLiveSolveStats(): Promise<LiveSolveStats>
 ```
 
 One SQL statement (single round trip on the max:1 client), two scalar subqueries, mirroring the `getPlanState` pattern:
 
-- `liveSolvedTotal`: `count(distinct canonical_key)` from `solve_events` where `detected <> 'backfill'` and `created_at at time zone 'Asia/Kolkata' >= '<DAYS[0].date>'` (plan start comes from `DAYS[0].date`, not a new hardcode).
 - `solvedPerDay`: `json_object_agg(day, n)` over `to_char(created_at at time zone 'Asia/Kolkata', 'YYYY-MM-DD')`, `count(distinct canonical_key)`, same `detected` filter (no start-date filter — the schedule shows past days too).
 
-On error: log + return `{ liveSolvedTotal: 0, solvedPerDay: {} }`.
+On error: log + return `{ solvedPerDay: {} }`.
 
 ### 3. Derive on the page — `apps/web/app/plan/page.tsx`
 
 - Fetch `getLiveSolveStats()` **sequentially** after the existing reads (never `Promise.all` — max:1 client).
-- Extend `PlanViewState` (`src/components/plan/types.ts`) with `liveSolvedTotal: number` and `solvedPerDay: Record<string, number>`.
+- Extend `PlanViewState` with `neetcode150Solved`, `solvedPerDay`, and the derived-floor map.
 
-### 4. Hybrid ring — `stat-rings.tsx` + `plan-client.tsx`
+### 4. Exact NeetCode 150 ring — `plan-data` + `page.tsx`
 
-- Ring numerator becomes `liveSolvedTotal + counters.dsa` (derived base + manual adjustment). Manual `+N`/undo buttons and their optimistic reducer cases stay exactly as they are — they now mean "solves done off-tracker".
+- Export the official 150 canonical keys as `NEETCODE_150_KEYS` and intersect them with the existing solved-key set.
+- Ring numerator is that intersection size. The legacy manual DSA counter and off-list solves do not contribute.
 - Keep `DSA_TARGET = 150`; fraction already clamps at 1 so overflow is safe.
 - Keep the existing total-only ring presentation; do not add an auto/manual split sublabel.
-- **No data migration**: the seeded 147 stays. The user can calibrate in the UI — one "undo" pops the entire `[147]` history entry to 0, then `+N` sets the true off-tracker base. Mention this in the handoff notes.
+- **No data migration**: every solved problem and the legacy counter remain stored; only the UI derivation changes.
 
 ### 5. Auto-claim the daily DSA floor — `page.tsx` + `today-hero.tsx` + `schedule.tsx`
 
@@ -76,7 +76,7 @@ When a **live** solve is recorded (the `/api/solve` path; not backfill/import), 
 - `apps/web/src/lib/plan-state.ts` — `getLiveSolveStats`, streak floor derivation
 - `apps/web/app/plan/page.tsx` — fetch stats, derive floors, extend view state
 - `apps/web/src/components/plan/types.ts` — `PlanViewState` fields
-- `apps/web/src/components/plan/plan-client.tsx` — hybrid ring numerator and focus refresh
+- `apps/web/src/components/plan/plan-client.tsx` — exact ring numerator and focus refresh
 - `apps/web/src/components/plan/today-hero.tsx`, `schedule.tsx` — floor badge/auto display, `n/4` progress
 - `apps/web/src/lib/queries.ts` — stale-false cleanup in `recordSolve`
 - (docs) `CLAUDE.md` — drop the stale "0001 unapplied" warning; note the new derived metrics + `detected <> 'backfill'` rule
@@ -86,16 +86,16 @@ No new API routes (stays at 7), no schema migration, extension untouched.
 ## Verification
 
 1. Typecheck: `cd apps/web && ./node_modules/.bin/tsc --noEmit` (workspace-local binary, never bare `npx tsc`).
-2. Scratchpad SQL sanity (read-only, pattern already in `/private/tmp/.../scratchpad/*.mjs`): run the new stats query raw against Supabase; expected today: `liveSolvedTotal` ≈ 10 (6 lc + 1 nc-manual + 3 tuf distinct keys), `solvedPerDay['2026-07-21'] = 4`.
+2. Validate that the membership list has 150 unique keys, all exist in the catalog, and compare its solved intersection with Supabase.
 3. `pnpm dev`, open `http://localhost:3000/plan`:
-   - Ring shows the total `liveSolvedTotal + 147` without a split sublabel.
+   - Ring shows only the solved intersection with the NeetCode 150 list.
    - Jul 21 in the schedule shows the DSA floor claimed (4 distinct live solves that day) with an auto badge; a manual toggle on another day still works.
-   - `+N` / undo on the counter still adjusts the manual part only.
+   - `+N` / undo remains available only for the separate extra-problem counter.
    - Leave `/plan` open, record a solve through the extension, switch away and back; the matching problem ticks without a manual reload.
 4. Stale-override test: `POST http://localhost:3000/api/solve` with `{"key":"lc:maximum-score-from-removing-substrings", ...}` (matching the extension's payload shape) → the `done=false` row for `prob:2026-07-22:lc:maximum-score-from-removing-substrings` is deleted and the problem ticks on reload.
 5. TZ check: temporarily run with `TZ=Asia/Tokyo pnpm dev` after 20:30 IST-equivalent — `todayKey` must still be the IST date.
 
 ## Handoff notes for the user
 
-- The ring will initially read `147 + ~10`. To recalibrate: hit undo once (pops the whole 147), then `+N` your true count of problems solved outside the tracked sites.
+- The NeetCode ring is fully automatic; the legacy manual 147 remains stored but is ignored by the UI.
 - Striver/TUF-only entries (5 keyless problems) remain hand-tick by design; TUF solves that resolve to a LeetCode problem already auto-tick.

@@ -13,7 +13,7 @@ study plan that ticks itself off as you solve.
 | Route | What it is |
 |---|---|
 | `/` | Dashboard — totals, difficulty/source breakdown, solves over time, recent activity |
-| `/plan` | 26-day study plan — daily tasks, per-day log, C++ phase milestones, resume checklist, hybrid counters, streak. **LeetCode problems in the plan tick themselves** after the extension records a solve; an already-open plan refreshes when its tab regains focus |
+| `/plan` | 26-day study plan — daily tasks, per-day log, exact NeetCode 150 progress, today's automatic solve count, C++ phases, and streak. **LeetCode problems in the plan tick themselves** after the extension records a solve; an already-open plan refreshes when its tab regains focus |
 | `/problems` | Full solved-problem table — every canonical key with its title, difficulty, source, and first-solve date |
 
 ### Workspaces
