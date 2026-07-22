@@ -6,8 +6,10 @@ import {
   localDateKey,
 } from '@dsa-tracker/plan-data';
 import type { Metadata } from 'next';
+import { cn } from '@/lib/utils';
 import { PlanClient } from '@/components/plan/plan-client';
-import type { PlanViewState } from '@/components/plan/types';
+import { isPlanView, type PlanView, type PlanViewState } from '@/components/plan/types';
+import { ViewSwitcher } from '@/components/plan/view-switcher';
 import type { PlanDayState } from '@/lib/plan-state';
 import { getLiveSolveStats, getPlanState, getPlanStreak, getSolvedKeySet } from '@/lib/plan-state';
 
@@ -99,7 +101,17 @@ function resolveDays(
   return { days, floorDsaAuto };
 }
 
-export default async function PlanPage() {
+/** Layout `a` is the working default while the four are being compared. */
+const DEFAULT_VIEW: PlanView = 'a';
+
+type SearchParams = Promise<{ view?: string; tab?: string; d?: string }>;
+
+export default async function PlanPage({ searchParams }: { searchParams: SearchParams }) {
+  // Reading searchParams keeps the route dynamic — it already is via
+  // `force-dynamic`, so nothing about the DB reads below changes.
+  const sp = await searchParams;
+  const view: PlanView = isPlanView(sp.view) ? sp.view : DEFAULT_VIEW;
+
   // Sequential, never Promise.all: the postgres.js client is deliberately
   // max: 1 and a concurrent fan-out stalls the Supabase transaction pooler.
   // Every read degrades to empty state, so this renders without a database.
@@ -133,8 +145,12 @@ export default async function PlanPage() {
   const cppDone = PHASES.filter((phase) => state.checks[checkId.phase(phase)]).length;
 
   return (
-    <main className="page">
+    // Only the cockpit earns more than the site's 1000px column. `.page` lives
+    // in @layer components, so a Tailwind utility on the same element wins.
+    <main className={cn('page', view === 'c' && 'lg:max-w-[1280px] xl:max-w-[1440px]')}>
       <div className="page-header">
+        <ViewSwitcher view={view} />
+
         <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
           <div className="min-w-0">
             <h1 className="page-title">Internship Prep</h1>
@@ -175,7 +191,14 @@ export default async function PlanPage() {
         </p>
       </div>
 
-      <PlanClient state={state} daysLeft={daysLeft} cppDone={cppDone} />
+      <PlanClient
+        state={state}
+        daysLeft={daysLeft}
+        cppDone={cppDone}
+        view={view}
+        initialTab={sp.tab}
+        initialSelected={sp.d}
+      />
     </main>
   );
 }

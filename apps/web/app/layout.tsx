@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { Inter, JetBrains_Mono } from 'next/font/google';
+import { Suspense } from 'react';
 import { NavBar } from '@/components/NavBar';
 import { ThemeProvider } from '@/lib/theme';
 import './globals.css';
@@ -37,7 +38,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="font-sans antialiased">
         <ThemeProvider>
-          <NavBar />
+          {/* NavBar reads useSearchParams (the /plan cockpit widens it), which
+              Next requires a Suspense boundary around so a statically rendered
+              route can still be prerendered. */}
+          <Suspense fallback={<div className="h-[73px] border-b border-[var(--pt-border)]" />}>
+            <NavBar />
+          </Suspense>
           {children}
         </ThemeProvider>
       </body>

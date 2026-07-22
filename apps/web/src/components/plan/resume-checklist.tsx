@@ -10,9 +10,14 @@ type Props = {
   onToggleCheck: (id: string, val: boolean) => void;
 };
 
-export function ResumeChecklist({ state, onToggleCheck }: Props) {
+/** Resume items ticked, counted the one legal way. */
+export function resumeDone(state: PlanViewState): number {
   // IDs come from checkId.resume — never a positional `r${i}`.
-  const done = RESUME_ITEMS.filter((item) => state.checks[checkId.resume(item)]).length;
+  return RESUME_ITEMS.filter((item) => state.checks[checkId.resume(item)]).length;
+}
+
+export function ResumeChecklist({ state, onToggleCheck }: Props) {
+  const done = resumeDone(state);
   const pct = Math.round((done / RESUME_ITEMS.length) * 100);
   const complete = done === RESUME_ITEMS.length;
 
@@ -38,21 +43,28 @@ export function ResumeChecklist({ state, onToggleCheck }: Props) {
         />
       </div>
 
-      <div className="p-4">
-        {RESUME_ITEMS.map((item) => {
-          const id = checkId.resume(item);
-          return (
-            <TaskRow
-              key={id}
-              id={id}
-              label={item}
-              tag="res"
-              checked={!!state.checks[id]}
-              onChange={onToggleCheck}
-            />
-          );
-        })}
-      </div>
+      <ResumeChecklistBody state={state} onToggleCheck={onToggleCheck} />
     </section>
+  );
+}
+
+/** The six rows without the section chrome (header bar and 3px progress bar). */
+export function ResumeChecklistBody({ state, onToggleCheck }: Props) {
+  return (
+    <div className="p-4">
+      {RESUME_ITEMS.map((item) => {
+        const id = checkId.resume(item);
+        return (
+          <TaskRow
+            key={id}
+            id={id}
+            label={item}
+            tag="res"
+            checked={!!state.checks[id]}
+            onChange={onToggleCheck}
+          />
+        );
+      })}
+    </div>
   );
 }

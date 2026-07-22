@@ -14,11 +14,15 @@ import {
 import type { PlanDayState } from '@/lib/plan-state';
 import { CppPhases } from './cpp-phases';
 import { DsaMethod } from './dsa-method';
+import { LayoutCockpit } from './layout-cockpit';
+import { LayoutStack } from './layout-stack';
+import { LayoutTabs } from './layout-tabs';
+import { isPlanTab, type PlanTabId } from './plan-tabs';
 import { ResumeChecklist } from './resume-checklist';
 import { Schedule } from './schedule';
 import { StatRings } from './stat-rings';
 import { TodayHero } from './today-hero';
-import type { PlanViewState } from './types';
+import type { PlanLayoutProps, PlanView, PlanViewState } from './types';
 
 /** Mirrors MAX_DSA in lib/plan-state.ts for the manual extra counter. */
 const MAX_DSA = 150;
@@ -141,6 +145,11 @@ type Props = {
   state: PlanViewState;
   daysLeft: number;
   cppDone: number;
+  /** Which candidate layout to render. Evaluation scaffolding — see types.ts. */
+  view: PlanView;
+  /** `?tab=` for layout B and `?d=` for layout C — initial values only. */
+  initialTab?: string;
+  initialSelected?: string;
 };
 
 /**
@@ -150,13 +159,19 @@ type Props = {
  * action rolls its optimistic entry back automatically — all this has to do is
  * catch it so it never surfaces as an unhandled rejection.
  */
-export function PlanClient({ state, daysLeft, cppDone }: Props) {
+export function PlanClient({ state, daysLeft, cppDone, view, initialTab, initialSelected }: Props) {
   const router = useRouter();
   const [optimistic, applyOptimistic] = useOptimistic(state, planReducer);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const refreshQueued = useRef(false);
   const lastRefreshAt = useRef(0);
+
+  // Input drafts live here, not in the panel that renders them: layout B
+  // unmounts panes and layout C swaps the panel between days, either of which
+  // would silently eat a half-typed log if the state sat one level down.
+  const [logInput, setLogInput] = useState('');
+  const [extraInput, setExtraInput] = useState('');
 
   // Extension writes happen outside this React tree. Revalidate when the user
   // returns to the plan tab so newly detected solves appear without polling.
@@ -226,13 +241,36 @@ export function PlanClient({ state, daysLeft, cppDone }: Props) {
     run({ kind: 'trip', date, value }, () => setTripAction(date, value));
   };
 
-  // TodayHero trims and drops empties before calling this.
-  const onSaveLog = (text: string) =>
-    run({ kind: 'log', date: todayKey, text }, () => saveLogAction(todayKey, text));
+  // The log field trims and drops empties before calling this. The date is a
+  // parameter, not `todayKey`: layout C can backfill a past day, and the action
+  // and the optimistic reducer have both always been date-scoped.
+  const onSaveLog = (date: string, text: string) =>
+    run({ kind: 'log', date, text }, () => saveLogAction(date, text));
 
   const onAddDsaExtra = (n: number) =>
     run({ kind: 'addExtra', n }, () => addDsaExtraAction(n));
   const onUndoDsaExtra = () => run({ kind: 'undoExtra' }, () => undoDsaExtraAction());
+
+  // Identical for every shell: swapping layouts is a render-time choice and
+  // nothing else. No shell owns data or talks to a Server Action directly.
+  const layoutProps: PlanLayoutProps = {
+    state: optimistic,
+    daysLeft,
+    cppDone: cppDoneNow,
+    onToggleCheck,
+    onToggleFloor,
+    onToggleTrip,
+    onSaveLog,
+    onAddDsaExtra,
+    onUndoDsaExtra,
+    logInput,
+    setLogInput,
+    extraInput,
+    setExtraInput,
+  };
+
+  const defaultTab: PlanTabId = 'today';
+  const tabSeed: PlanTabId = isPlanTab(initialTab) ? initialTab : defaultTab;
 
   return (
     <div aria-busy={isPending}>
@@ -254,32 +292,48 @@ export function PlanClient({ state, daysLeft, cppDone }: Props) {
         </div>
       )}
 
-      <StatRings
-        dsaCount={optimistic.neetcode150Solved}
-        dsaExtra={optimistic.counters.dsaExtra}
-        cppDone={cppDoneNow}
-        streak={optimistic.streak}
-        daysLeft={daysLeft}
-      />
+      {view === 'a' && <LayoutStack {...layoutProps} />}
 
-      <TodayHero
-        state={optimistic}
-        todayKey={todayKey}
-        onToggleCheck={onToggleCheck}
-        onToggleFloor={onToggleFloor}
-        onToggleTrip={onToggleTrip}
-        onAddDsaExtra={onAddDsaExtra}
-        onUndoDsaExtra={onUndoDsaExtra}
-        onSaveLog={onSaveLog}
-      />
+      {view === 'b' && (
+        <LayoutTabs {...layoutProps} initialTab={tabSeed} defaultTab={defaultTab} />
+      )}
 
-      <CppPhases state={optimistic} onToggleCheck={onToggleCheck} />
+      {view === 'c' && <LayoutCockpit {...layoutProps} initialSelected={initialSelected} />}
 
-      <DsaMethod />
+      {/* The layout that shipped before this comparison, kept verbatim as the
+          baseline the three candidates are judged against. TodayHero is frozen
+          for exactly this reason — the candidates use the composable pieces in
+          day-parts.tsx instead. */}
+      {view === 'now' && (
+        <>
+          <StatRings
+            dsaCount={optimistic.neetcode150Solved}
+            dsaExtra={optimistic.counters.dsaExtra}
+            cppDone={cppDoneNow}
+            streak={optimistic.streak}
+            daysLeft={daysLeft}
+          />
 
-      <Schedule state={optimistic} todayKey={todayKey} onToggleCheck={onToggleCheck} />
+          <TodayHero
+            state={optimistic}
+            todayKey={todayKey}
+            onToggleCheck={onToggleCheck}
+            onToggleFloor={onToggleFloor}
+            onToggleTrip={onToggleTrip}
+            onAddDsaExtra={onAddDsaExtra}
+            onUndoDsaExtra={onUndoDsaExtra}
+            onSaveLog={(text) => onSaveLog(todayKey, text)}
+          />
 
-      <ResumeChecklist state={optimistic} onToggleCheck={onToggleCheck} />
+          <CppPhases state={optimistic} onToggleCheck={onToggleCheck} />
+
+          <DsaMethod />
+
+          <Schedule state={optimistic} todayKey={todayKey} onToggleCheck={onToggleCheck} />
+
+          <ResumeChecklist state={optimistic} onToggleCheck={onToggleCheck} />
+        </>
+      )}
     </div>
   );
 }

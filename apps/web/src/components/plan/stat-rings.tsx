@@ -4,8 +4,8 @@ import { PHASE_COUNT } from '@dsa-tracker/plan-data';
 import { cn } from '@/lib/utils';
 
 /** NeetCode 150, then 150 more — the 300-problem target the pace metric divides. */
-const DSA_TARGET = 150;
-const TOTAL_TARGET = DSA_TARGET * 2;
+export const DSA_TARGET = 150;
+export const TOTAL_TARGET = DSA_TARGET * 2;
 
 /** Same surface + border + radius + shadow as the dashboard's `.panel`. */
 const CARD =
@@ -44,7 +44,8 @@ type RingProps = {
   total: string;
 };
 
-function Ring({ fraction, tone, value, total }: RingProps) {
+/** Exported so the cockpit rail can reuse the exact same 60px ring. */
+export function Ring({ fraction, tone, value, total }: RingProps) {
   const r = 26;
   const c = 2 * Math.PI * r;
   const offset = c * (1 - Math.min(1, Math.max(0, fraction)));
