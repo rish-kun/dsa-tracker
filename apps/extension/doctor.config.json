@@ -1,0 +1,38 @@
+{
+  "$schema": "https://react.doctor/schema/config.json",
+
+  // This is a WXT (Manifest V3) browser extension, not a bundler-driven React
+  // app. Two of React Doctor's default assumptions do not hold here, so both
+  // are narrowed below rather than "fixed" in source.
+  "ignore": {
+    // 1. Build output. `wxt build` writes minified bundles to .output/ and
+    //    intermediate generated code to .wxt/ (both git-ignored). Scanning them
+    //    reports findings against machine-generated, already-shipped bundles —
+    //    e.g. insecure-crypto-risk on the minified content scripts — that have
+    //    no corresponding source to fix.
+    "files": [".output/**", ".wxt/**", "dist/**"],
+
+    "overrides": [
+      {
+        // 2. WXT discovers entrypoints by DIRECTORY CONVENTION: every file
+        //    under entrypoints/ (plus anything they pull in, e.g.
+        //    components/Banner.tsx and lib/messaging.ts) is registered into the
+        //    generated manifest.json at build time and shipped. Nothing
+        //    `import`s them, because the framework is the importer. React
+        //    Doctor's reachability graph does not model WXT, so it reports
+        //    every entrypoint as dead code. All of these files are live and in
+        //    the built extension — verify with `.output/chrome-mv3/manifest.json`.
+        "files": ["entrypoints/**", "components/**", "lib/**"],
+        "rules": ["deslop/unused-file"]
+      },
+      {
+        // 3. `@wxt-dev/module-react` is loaded by NAME from `modules: [...]` in
+        //    wxt.config.ts — WXT resolves it at build time, so there is no
+        //    import statement for a scanner to follow. It is what wires up the
+        //    React JSX pipeline; removing it breaks the build.
+        "files": ["package.json"],
+        "rules": ["deslop/unused-dev-dependency"]
+      }
+    ]
+  }
+}

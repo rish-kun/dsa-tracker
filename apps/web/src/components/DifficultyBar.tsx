@@ -12,7 +12,7 @@ export function DifficultyBar({ byDifficulty }: { byDifficulty: Record<Difficult
   const total = ORDER.reduce((sum, key) => sum + byDifficulty[key], 0);
 
   return (
-    <div className="panel diff-panel">
+    <div className="panel">
       <h2 className="panel-title">By difficulty</h2>
       {total === 0 ? (
         <p className="panel-empty">Nothing solved yet — this fills in as you go.</p>

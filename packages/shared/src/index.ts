@@ -21,14 +21,6 @@ export type CanonicalKey =
   | `gfg:${string}`
   | `nc:${string}`;
 
-export function lcKey(slug: string): CanonicalKey {
-  return `lc:${slug}`;
-}
-
-export function isLcKey(key: string): boolean {
-  return key.startsWith('lc:');
-}
-
 export interface Problem {
   lcSlug: string;
   lcNumber: number;

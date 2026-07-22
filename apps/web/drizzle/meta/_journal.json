@@ -8,6 +8,20 @@
       "when": 1784486249219,
       "tag": "0000_charming_red_hulk",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1784635376308,
+      "tag": "0001_easy_toxin",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784691786346,
+      "tag": "0002_curly_bloodstorm",
+      "breakpoints": true
     }
   ]
 }

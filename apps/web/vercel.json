@@ -6,10 +6,10 @@
   "buildCommand": "pnpm --filter web build",
   "outputDirectory": ".next",
   "functions": {
-    "apps/web/app/api/backfill/route.ts": {
+    "app/api/backfill/route.ts": {
       "maxDuration": 60
     },
-    "apps/web/app/api/catalog/refresh/route.ts": {
+    "app/api/catalog/refresh/route.ts": {
       "maxDuration": 60
     }
   }

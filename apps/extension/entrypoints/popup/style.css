@@ -1,190 +1,458 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   DSA Tracker — popup theme
+
+   The --pt-* values below are COPIED LITERALS mirrored from the web app's
+   apps/web/app/globals.css (:root = light, .dark = dark). The extension is a
+   separate build with no access to the Next.js stylesheet, so the palette
+   cannot be imported — it is duplicated here on purpose. Keep the two in sync;
+   every value below appears verbatim in globals.css.
+
+   WHY A MEDIA QUERY HERE AND A CLASS THERE:
+   the web app resolves dark mode from a `.dark` class that a blocking inline
+   script in app/layout.tsx writes after reading localStorage['pt_theme'].
+   The popup runs on the chrome-extension:// origin and cannot see that
+   localStorage, and there is no <html class="dark"> for it to hook. So this is
+   the one place `@media (prefers-color-scheme: dark)` is the correct mechanism
+   — do NOT "fix" this into a class-based toggle, and do NOT add such a media
+   query to globals.css.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 :root {
-  color-scheme: dark;
+  color-scheme: light dark;
+
+  /* Base */
+  --pt-bg: #f5f5f4;
+  --pt-surface: #ffffff;
+  --pt-surface-2: #fafaf9;
+  --pt-border: #e7e5e4;
+  --pt-border-2: #d6d3d1;
+
+  /* Raised fill — hover / header / tooltip. Lifts OFF --pt-surface in both
+     modes; deliberately NOT --pt-surface-2, which is darker than surface. */
+  --pt-surface-raised: #f1f0ee;
+
+  --pt-shadow-panel: 0 1px 0 rgba(11, 11, 11, 0.05);
+
+  /* Text */
+  --pt-text: #1c1917;
+  --pt-text-2: #57534e;
+  --pt-text-3: #a8a29e;
+
+  /* Accent — blue. --pt-blue-ink is the contrasting ink for text on a
+     --pt-blue-bg tint; text on a SOLID --pt-blue fill uses --pt-bg. */
+  --pt-blue: #3b82f6;
+  --pt-blue-bg: rgba(59, 130, 246, 0.08);
+  --pt-blue-ink: #0d3a6e;
+  --pt-blue-ring: rgba(59, 130, 246, 0.3);
+
+  --pt-green: #16a34a;
+  --pt-green-bg: rgba(22, 163, 74, 0.08);
+
+  --pt-amber: #d97706;
+  --pt-amber-bg: rgba(217, 119, 6, 0.08);
+
+  --pt-rose: #e11d48;
+  --pt-rose-bg: rgba(225, 29, 72, 0.08);
+
+  --pt-violet: #7c3aed;
+  --pt-violet-bg: rgba(124, 58, 237, 0.08);
+
+  /* Domain: problem sources */
+  --pt-src-leetcode: #2a78d6;
+  --pt-src-neetcode: #008300;
+  --pt-src-tuf: #c13a6b;
+  --pt-src-backfill: #a86e00;
+  --pt-src-other: #79776f;
+
+  /* Domain: difficulty */
+  --pt-diff-easy: #0b7a0b;
+  --pt-diff-medium: #9a6300;
+  --pt-diff-hard: #c02f2f;
+
+  /* Inter / JetBrains Mono are loaded by next/font on the web side and are not
+     available to the extension; the stacks name them first so a locally
+     installed copy is picked up, then fall back to the system UI faces. */
+  --pt-font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system,
+    BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --pt-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo,
+    Consolas, monospace;
 }
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --pt-bg: #0c0a09;
+    --pt-surface: #1c1917;
+    --pt-surface-2: #141312;
+    --pt-border: #292524;
+    --pt-border-2: #3a3633;
+
+    --pt-surface-raised: #252220;
+
+    --pt-shadow-panel: 0 1px 0 rgba(0, 0, 0, 0.4);
+
+    --pt-text: #fafaf9;
+    --pt-text-2: #a8a29e;
+    --pt-text-3: #57534e;
+
+    --pt-blue: #60a5fa;
+    --pt-blue-bg: rgba(96, 165, 250, 0.1);
+    --pt-blue-ink: #eaf1fd;
+    --pt-blue-ring: rgba(96, 165, 250, 0.25);
+
+    --pt-green: #4ade80;
+    --pt-green-bg: rgba(74, 222, 128, 0.1);
+
+    --pt-amber: #fbbf24;
+    --pt-amber-bg: rgba(251, 191, 36, 0.1);
+
+    --pt-rose: #fb7185;
+    --pt-rose-bg: rgba(251, 113, 133, 0.1);
+
+    --pt-violet: #a78bfa;
+    --pt-violet-bg: rgba(167, 139, 250, 0.1);
+
+    --pt-src-leetcode: #3987e5;
+    --pt-src-neetcode: #008300;
+    --pt-src-tuf: #d55181;
+    --pt-src-backfill: #c98500;
+    --pt-src-other: #898781;
+
+    --pt-diff-easy: #0ca30c;
+    --pt-diff-medium: #fab219;
+    --pt-diff-hard: #d03b3b;
+  }
+}
+
 * {
   box-sizing: border-box;
 }
+
 body {
   margin: 0;
+  background: var(--pt-bg);
 }
+
+/* ── Shell ─────────────────────────────────────────────────────────────── */
+
 .app {
   width: 320px;
   padding: 14px 16px 18px;
-  background: #17171c;
-  color: #f3f4f6;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial,
-    sans-serif;
+  background: var(--pt-bg);
+  color: var(--pt-text);
+  font-family: var(--pt-font-sans);
+  /* 13px here vs the dashboard's 15px base: popup chrome is denser, but the
+     ramp below is proportional to the dashboard's. */
   font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
 }
+
 .hdr {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
 }
+
+/* Mirrors .nav-wordmark on the dashboard: mono, tight tracking. */
 .logo {
-  font-weight: 700;
-  font-size: 15px;
+  font-family: var(--pt-font-mono);
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: -0.02em;
+  color: var(--pt-text);
 }
+
+/* ── Warning banner ────────────────────────────────────────────────────── */
+
 .warn {
-  background: rgba(245, 158, 11, 0.14);
-  border: 1px solid rgba(245, 158, 11, 0.4);
-  color: #fbbf24;
-  border-radius: 8px;
+  background: var(--pt-amber-bg);
+  border: 1px solid color-mix(in srgb, var(--pt-amber) 45%, transparent);
+  color: var(--pt-amber);
+  border-radius: 6px;
   padding: 8px 10px;
   font-size: 12px;
+  line-height: 1.45;
   margin-bottom: 12px;
 }
+
+/* ── Counters ──────────────────────────────────────────────────────────── */
+
 .counts {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   margin-bottom: 16px;
 }
+
 .count {
   flex: 1;
-  background: #1f1f26;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--pt-surface);
+  border: 1px solid var(--pt-border);
   border-radius: 10px;
-  padding: 12px;
+  box-shadow: var(--pt-shadow-panel);
+  padding: 11px 12px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
+  min-width: 0;
 }
+
 .count.primary {
   flex: 1.4;
 }
+
+/* Dashboard hero idiom: the number itself is ink, not accent — mono,
+   tabular, tightly tracked. Hue lives on the label dot below. */
 .num {
-  font-size: 30px;
-  font-weight: 700;
-  color: #22c55e;
+  font-family: var(--pt-font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--pt-text);
   line-height: 1;
+  letter-spacing: -0.03em;
 }
+
 .num.small {
-  font-size: 22px;
-  color: #93c5fd;
+  font-size: 21px;
+  letter-spacing: -0.02em;
 }
+
+/* Uppercase letter-spaced micro-label, matching .hero-secondary-label. */
 .lbl {
-  color: #9ca3af;
-  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--pt-text-2);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+
+/* Domain-token source dots, rendered from CSS so a LeetCode count reads the
+   same blue as the LeetCode bar on the dashboard. */
+.lbl::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  background: var(--pt-src-other);
+}
+
+.count.primary .lbl::before {
+  background: var(--pt-src-leetcode);
+}
+
+/* ── Blocks ────────────────────────────────────────────────────────────── */
+
 .block {
   margin-bottom: 14px;
 }
+
+.block-title {
+  /* Also applied to a <label> (API base URL), which is inline by default —
+     block keeps its box identical to the <div> variants. */
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--pt-text-3);
+  margin-bottom: 7px;
+}
+
+.empty {
+  color: var(--pt-text-3);
+  font-size: 12px;
+}
+
+/* ── Current problem card ──────────────────────────────────────────────── */
+
 .current-problem {
   margin-bottom: 14px;
-  padding: 11px;
-  border: 1px solid rgba(59, 130, 246, 0.35);
+  padding: 11px 12px;
+  border: 1px solid color-mix(in srgb, var(--pt-blue) 40%, transparent);
   border-radius: 10px;
-  background: rgba(59, 130, 246, 0.08);
+  background: var(--pt-blue-bg);
 }
+
+.current-problem .block-title {
+  color: var(--pt-blue);
+}
+
 .current-title {
-  color: #f3f4f6;
+  color: var(--pt-text);
   font-weight: 600;
+  font-size: 13px;
   line-height: 1.35;
 }
+
 .current-status {
   margin-top: 7px;
-  color: #4ade80;
+  color: var(--pt-green);
   font-size: 12px;
   font-weight: 600;
 }
+
 .current-btn {
   margin-top: 9px;
 }
-.block-title {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #9ca3af;
-  margin-bottom: 6px;
-}
-.empty {
-  color: #6b7280;
-  font-size: 12px;
-}
+
+/* ── Recent list ───────────────────────────────────────────────────────── */
+
 .list {
   list-style: none;
   margin: 0;
   padding: 0;
 }
+
 .list li {
   display: flex;
   justify-content: space-between;
+  align-items: baseline;
   gap: 8px;
-  padding: 6px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 7px 0;
+  border-top: 1px solid var(--pt-border);
+  font-size: 12.5px;
 }
+
+.list li:first-child {
+  border-top: none;
+}
+
 .item-title {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--pt-text);
+  font-weight: 500;
 }
+
 .item-date {
-  color: #9ca3af;
+  font-family: var(--pt-font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--pt-text-3);
+  font-size: 11.5px;
   flex: 0 0 auto;
 }
+
+/* ── Controls ──────────────────────────────────────────────────────────── */
+
 .row {
   display: flex;
   gap: 8px;
 }
+
 .input {
   flex: 1;
-  background: #101014;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
-  color: #f3f4f6;
-  padding: 8px 10px;
-  font-size: 12px;
+  min-width: 0;
+  background: var(--pt-surface);
+  border: 1px solid var(--pt-border);
+  border-radius: 6px;
+  color: var(--pt-text);
+  font-family: var(--pt-font-mono);
+  padding: 7px 10px;
+  font-size: 11.5px;
 }
+
+.input::placeholder {
+  color: var(--pt-text-3);
+}
+
+.input:focus {
+  outline: 2px solid var(--pt-blue);
+  outline-offset: -1px;
+}
+
+/* Solid-blue fill takes --pt-bg as its ink (the plan components' idiom);
+   --pt-blue-ink is for text on the --pt-blue-bg tint, not on solid blue. */
 .primary-btn {
   width: 100%;
-  background: #3b82f6;
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  padding: 10px;
-  font-size: 13px;
+  background: var(--pt-blue);
+  color: var(--pt-bg);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 9px 12px;
+  font-family: inherit;
+  font-size: 12.5px;
   font-weight: 600;
+  letter-spacing: -0.01em;
   cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease,
+    color 0.15s ease;
 }
-.primary-btn:hover {
-  background: #2563eb;
+
+.primary-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--pt-blue) 85%, var(--pt-text));
 }
+
 .primary-btn:disabled {
-  opacity: 0.6;
+  opacity: 0.55;
   cursor: default;
 }
+
 .primary-btn.secondary {
   margin-top: 8px;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--pt-surface);
+  border-color: var(--pt-border-2);
+  color: var(--pt-text);
 }
-.primary-btn.secondary:hover {
-  background: rgba(255, 255, 255, 0.16);
+
+.primary-btn.secondary:hover:not(:disabled) {
+  background: var(--pt-surface-raised);
+  border-color: var(--pt-text-3);
 }
+
+/* Dashboard .filter-chip idiom. */
 .ghost {
-  background: rgba(255, 255, 255, 0.08);
-  color: #f3f4f6;
-  border: none;
-  border-radius: 8px;
-  padding: 7px 12px;
-  font-size: 12px;
+  background: var(--pt-surface);
+  color: var(--pt-text-2);
+  border: 1px solid var(--pt-border);
+  border-radius: 999px;
+  padding: 5px 11px;
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
   cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease,
+    border-color 0.15s ease;
 }
-.ghost:hover {
-  background: rgba(255, 255, 255, 0.14);
+
+.ghost:hover:not(:disabled) {
+  color: var(--pt-text);
+  background: var(--pt-surface-raised);
+  border-color: var(--pt-text-3);
 }
+
+.ghost:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .link {
   margin-top: 10px;
   background: none;
   border: none;
-  color: #93c5fd;
+  color: var(--pt-text-2);
   padding: 0;
+  font-family: inherit;
   font-size: 12px;
   cursor: pointer;
+  transition: color 0.15s ease;
 }
+
+.link:hover {
+  color: var(--pt-blue);
+}
+
 .note {
   margin-top: 8px;
-  color: #cbd5e1;
-  font-size: 12px;
-  line-height: 1.4;
+  color: var(--pt-text-2);
+  font-size: 11.5px;
+  line-height: 1.45;
 }

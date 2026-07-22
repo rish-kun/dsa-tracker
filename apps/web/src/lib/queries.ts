@@ -4,7 +4,7 @@ import type {
   SolvedProblem,
   Totals,
 } from '@dsa-tracker/shared';
-import { and, asc, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
+import { desc, eq, or, sql } from 'drizzle-orm';
 import { db, problems, solvedProblems, solveEvents } from '@/db';
 
 type SolvedRow = typeof solvedProblems.$inferSelect;
@@ -23,53 +23,47 @@ export function toSolvedProblem(row: SolvedRow, sourceUrl: string | null = null)
   };
 }
 
-async function attachSourceUrls(rows: SolvedRow[]): Promise<SolvedProblem[]> {
-  if (rows.length === 0) return [];
-  const firstUrlByKey = new Map<string, string>();
-  const firstSourceUrlByKey = new Map<string, string>();
-  const firstSourceByKey = new Map(rows.map((row) => [row.canonicalKey, row.firstSource]));
-  const keys = rows.map((row) => row.canonicalKey);
-  const chunkSize = 500;
+/**
+ * `sourceUrl` as a correlated subquery instead of a second round trip.
+ *
+ * Prefers the earliest URL logged by the source that first recorded the
+ * problem, and falls back to the earliest URL from any source. Sorting on
+ * `(ev.source = first_source) DESC` first reproduces exactly that preference:
+ * booleans sort false < true, so `DESC` puts the first-source events ahead of
+ * every other event, and `created_at, id` then picks the earliest within
+ * whichever group won. When no first-source event carries a URL, every row
+ * compares equal on the first key and the earliest overall URL wins.
+ *
+ * One statement for any number of rows — the previous implementation issued
+ * ceil(rows / 500) extra queries against solve_events.
+ *
+ * The outer references are spelled out as `"solved_problems"."<col>"` on
+ * purpose. Drizzle renders an interpolated column **unqualified** when it sits
+ * in the select-field position, and `solve_events` has its own `canonical_key`:
+ * a bare `canonical_key` would bind to the subquery's own table instead of the
+ * outer row and silently match every event in the table.
+ */
+const sourceUrlSql = sql<string | null>`(
+  select ev.url
+  from ${solveEvents} ev
+  where ev.canonical_key = "solved_problems"."canonical_key"
+    and ev.url is not null
+  order by (ev.source = "solved_problems"."first_source") desc,
+           ev.created_at asc,
+           ev.id asc
+  limit 1
+)`;
 
-  for (let i = 0; i < keys.length; i += chunkSize) {
-    const events = await db
-      .select({
-        canonicalKey: solveEvents.canonicalKey,
-        source: solveEvents.source,
-        url: solveEvents.url,
-      })
-      .from(solveEvents)
-      .where(
-        and(
-          inArray(solveEvents.canonicalKey, keys.slice(i, i + chunkSize)),
-          isNotNull(solveEvents.url),
-        ),
-      )
-      .orderBy(asc(solveEvents.createdAt), asc(solveEvents.id));
-
-    for (const event of events) {
-      if (event.url && !firstUrlByKey.has(event.canonicalKey)) {
-        firstUrlByKey.set(event.canonicalKey, event.url);
-      }
-      if (
-        event.url &&
-        event.source === firstSourceByKey.get(event.canonicalKey) &&
-        !firstSourceUrlByKey.has(event.canonicalKey)
-      ) {
-        firstSourceUrlByKey.set(event.canonicalKey, event.url);
-      }
-    }
-  }
-
-  return rows.map((row) =>
-    toSolvedProblem(
-      row,
-      firstSourceUrlByKey.get(row.canonicalKey) ??
-        firstUrlByKey.get(row.canonicalKey) ??
-        null,
-    ),
-  );
-}
+/** Every solved_problems column plus the derived sourceUrl, in one row shape. */
+const solvedWithUrl = {
+  canonicalKey: solvedProblems.canonicalKey,
+  lcSlug: solvedProblems.lcSlug,
+  title: solvedProblems.title,
+  difficulty: solvedProblems.difficulty,
+  firstSource: solvedProblems.firstSource,
+  firstSolvedAt: solvedProblems.firstSolvedAt,
+  sourceUrl: sourceUrlSql,
+};
 
 export async function getTotals(): Promise<Totals> {
   const [totals] = await db
@@ -86,13 +80,12 @@ export async function getTotals(): Promise<Totals> {
 }
 
 export async function getSolved(key: string): Promise<SolvedProblem | null> {
-  const rows = await db
-    .select()
+  const [row] = await db
+    .select(solvedWithUrl)
     .from(solvedProblems)
     .where(eq(solvedProblems.canonicalKey, key))
     .limit(1);
-  const [result] = await attachSourceUrls(rows);
-  return result ?? null;
+  return row ? toSolvedProblem(row, row.sourceUrl) : null;
 }
 
 function normalizeTitle(title: string): string {
@@ -102,28 +95,38 @@ function normalizeTitle(title: string): string {
     .replace(/[^a-z0-9]/g, '');
 }
 
-/** Resolve a possible LeetCode identity from a slug and/or display title. */
+/** Matches the expression index `problems_title_normalized_idx`. */
+const normalizedTitleSql = sql`regexp_replace(lower(${problems.title}), '[^a-z0-9]', '', 'g')`;
+
+/**
+ * Resolve a possible LeetCode identity from a slug and/or display title.
+ *
+ * Slug and title are matched in a single OR'd statement rather than two
+ * sequential queries: the ORDER BY reproduces the old short-circuit (an exact
+ * `lc_slug` hit always outranks a title hit) while costing one round trip
+ * instead of two on the common NeetCode path, where the site slug is not a
+ * LeetCode titleSlug and the first query always missed.
+ */
 export async function resolveCatalogProblem(
   slug?: string,
   title?: string,
 ): Promise<ProblemRow | null> {
-  if (slug) {
-    const [row] = await db
-      .select()
-      .from(problems)
-      .where(eq(problems.lcSlug, slug))
-      .limit(1);
-    if (row) return row;
-  }
-
   const normalized = normalizeTitle(title ?? '');
-  if (!normalized) return null;
+  if (!slug && !normalized) return null;
+
+  // `''` is not a valid titleSlug, so a missing slug can never match a row and
+  // never reorders the title matches.
+  const slugParam = slug ?? '';
+  const match = or(
+    ...(slug ? [eq(problems.lcSlug, slug)] : []),
+    ...(normalized ? [sql`${normalizedTitleSql} = ${normalized}`] : []),
+  );
+
   const [row] = await db
     .select()
     .from(problems)
-    .where(
-      sql`regexp_replace(lower(${problems.title}), '[^a-z0-9]', '', 'g') = ${normalized}`,
-    )
+    .where(match)
+    .orderBy(sql`case when ${problems.lcSlug} = ${slugParam} then 0 else 1 end`)
     .limit(1);
   return row ?? null;
 }
@@ -254,7 +257,7 @@ export async function recordSolve(req: SolveRequest): Promise<{
         firstSource: req.source,
       })
       .onConflictDoNothing()
-      .returning();
+      .returning({ canonicalKey: solvedProblems.canonicalKey });
 
     await tx.insert(solveEvents).values({
       canonicalKey,
@@ -263,29 +266,31 @@ export async function recordSolve(req: SolveRequest): Promise<{
       detected: req.detected,
     });
 
-    const [row] = inserted.length
-      ? inserted
-      : await tx
-          .select()
-          .from(solvedProblems)
-          .where(eq(solvedProblems.canonicalKey, canonicalKey))
-          .limit(1);
+    // Authoritative row and its first-source URL in one statement. Previously
+    // this was two reads (and three on a repeat solve, which also had to
+    // re-select the conflicting row).
+    const [row] = await tx
+      .select({
+        ...solvedWithUrl,
+        // Deliberately stricter than the shared `sourceUrlSql`: /api/solve has
+        // always reported null rather than borrowing another source's URL.
+        // Outer columns are qualified for the same reason as `sourceUrlSql`.
+        sourceUrl: sql<string | null>`(
+          select ev.url
+          from ${solveEvents} ev
+          where ev.canonical_key = "solved_problems"."canonical_key"
+            and ev.source = "solved_problems"."first_source"
+            and ev.url is not null
+          order by ev.created_at asc, ev.id asc
+          limit 1
+        )`,
+      })
+      .from(solvedProblems)
+      .where(eq(solvedProblems.canonicalKey, canonicalKey))
+      .limit(1);
     if (!row) throw new Error(`failed to record ${canonicalKey}`);
 
-    const [sourceEvent] = await tx
-      .select({ url: solveEvents.url })
-      .from(solveEvents)
-      .where(
-        and(
-          eq(solveEvents.canonicalKey, canonicalKey),
-          eq(solveEvents.source, row.firstSource),
-          isNotNull(solveEvents.url),
-        ),
-      )
-      .orderBy(asc(solveEvents.createdAt), asc(solveEvents.id))
-      .limit(1);
-
-    const entry = toSolvedProblem(row, sourceEvent?.url ?? null);
+    const entry = toSolvedProblem(row, row.sourceUrl);
     const isNew = inserted.length > 0 && !mergedAlias;
     return {
       isNew,
@@ -297,17 +302,17 @@ export async function recordSolve(req: SolveRequest): Promise<{
 
 export async function getAllSolved(): Promise<SolvedProblem[]> {
   const rows = await db
-    .select()
+    .select(solvedWithUrl)
     .from(solvedProblems)
     .orderBy(desc(solvedProblems.firstSolvedAt));
-  return attachSourceUrls(rows);
+  return rows.map((row) => toSolvedProblem(row, row.sourceUrl));
 }
 
 export async function getRecent(limit: number): Promise<SolvedProblem[]> {
   const rows = await db
-    .select()
+    .select(solvedWithUrl)
     .from(solvedProblems)
     .orderBy(desc(solvedProblems.firstSolvedAt))
     .limit(limit);
-  return attachSourceUrls(rows);
+  return rows.map((row) => toSolvedProblem(row, row.sourceUrl));
 }

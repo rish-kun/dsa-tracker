@@ -2,11 +2,19 @@ import { useEffect, useState } from 'react';
 import type { ActiveProblemResult, SolvedProblem, StatsResult } from '@dsa-tracker/shared';
 import { sendMessage } from '../../lib/messaging';
 
+// Explicit locale so the rendered string is stable regardless of the host
+// browser's locale ordering ("Jan 5" everywhere, never "5 Jan").
+const DATE_FMT = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' });
+
 function formatDate(iso: string): string {
   const d = new Date(iso);
-  return Number.isNaN(d.getTime())
-    ? ''
-    : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  // No explicit `timeZone`: this is an extension popup, rendered only in the
+  // browser — there is no server render and so no hydration to mismatch (the
+  // rule self-gates on "ssr", which this project is not). Pinning a timeZone
+  // would actively regress it: a solve stamped late in the user's evening must
+  // show that day, not UTC's next one.
+  // react-doctor-disable-next-line react-doctor/no-locale-format-in-render
+  return Number.isNaN(d.getTime()) ? '' : DATE_FMT.format(d);
 }
 
 export function App() {
@@ -22,14 +30,18 @@ export function App() {
 
   async function load() {
     setLoading(true);
-    const [res, current] = await Promise.all([
-      sendMessage({ type: 'GET_STATS' }),
-      sendMessage({ type: 'GET_ACTIVE_PROBLEM' }),
-    ]);
-    setData(res);
-    setActiveProblem(current);
-    setApiBase(res.cache.apiBaseUrl);
-    setLoading(false);
+    try {
+      const [res, current] = await Promise.all([
+        sendMessage({ type: 'GET_STATS' }),
+        sendMessage({ type: 'GET_ACTIVE_PROBLEM' }),
+      ]);
+      setData(res);
+      setActiveProblem(current);
+      setApiBase(res.cache.apiBaseUrl);
+    } finally {
+      // Must clear on rejection too, or Refresh stays disabled forever.
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -43,9 +55,13 @@ export function App() {
 
   async function saveBase() {
     setSavingBase(true);
-    const cache = await sendMessage({ type: 'SET_API_BASE', baseUrl: apiBase.trim() });
-    setApiBase(cache.apiBaseUrl);
-    setSavingBase(false);
+    try {
+      const cache = await sendMessage({ type: 'SET_API_BASE', baseUrl: apiBase.trim() });
+      setApiBase(cache.apiBaseUrl);
+    } finally {
+      // Must clear on rejection too, or Save stays disabled forever.
+      setSavingBase(false);
+    }
     await load();
   }
 
@@ -58,8 +74,13 @@ export function App() {
     const site = type === 'RUN_BACKFILL' ? 'leetcode.com' : 'neetcode.io';
     setBackfilling(true);
     setBackfillMsg(`Collecting solved problems from ${site}…`);
-    const res = await sendMessage({ type });
-    setBackfilling(false);
+    let res;
+    try {
+      res = await sendMessage({ type });
+    } finally {
+      // Must clear on rejection too, or both Sync buttons stay disabled forever.
+      setBackfilling(false);
+    }
     if (!res.ok) {
       setBackfillMsg(res.error ?? 'Sync failed.');
       return;
@@ -74,8 +95,13 @@ export function App() {
     if (!payload) return;
     setMarkingCurrent(true);
     setCurrentMsg(null);
-    const res = await sendMessage({ type: 'MARK_SOLVED', payload });
-    setMarkingCurrent(false);
+    let res;
+    try {
+      res = await sendMessage({ type: 'MARK_SOLVED', payload });
+    } finally {
+      // Must clear on rejection too, or the Mark button stays disabled forever.
+      setMarkingCurrent(false);
+    }
     setCurrentMsg(res.queued ? 'Saved locally — will sync automatically.' : 'Problem recorded.');
     await load();
     setActiveProblem({ payload, solved: true, entry: res.entry });
@@ -90,7 +116,7 @@ export function App() {
     <div className="app">
       <header className="hdr">
         <span className="logo">DSA Tracker</span>
-        <button className="ghost" onClick={refresh} disabled={loading}>
+        <button type="button" className="ghost" onClick={refresh} disabled={loading}>
           {loading ? '…' : 'Refresh'}
         </button>
       </header>
@@ -123,6 +149,7 @@ export function App() {
             <div className="current-status">Already tracked ✓</div>
           ) : (
             <button
+              type="button"
               className="primary-btn current-btn"
               onClick={() => void markCurrentProblem()}
               disabled={markingCurrent}
@@ -152,6 +179,7 @@ export function App() {
 
       <section className="block">
         <button
+          type="button"
           className="primary-btn"
           onClick={() => void runSync('RUN_BACKFILL')}
           disabled={backfilling}
@@ -159,6 +187,7 @@ export function App() {
           {backfilling ? 'Syncing…' : 'Sync from LeetCode'}
         </button>
         <button
+          type="button"
           className="primary-btn secondary"
           onClick={() => void runSync('RUN_NC_IMPORT')}
           disabled={backfilling}
@@ -169,20 +198,23 @@ export function App() {
       </section>
 
       <section className="block">
-        <div className="block-title">API base URL</div>
+        <label className="block-title" htmlFor="api-base-url">
+          API base URL
+        </label>
         <div className="row">
           <input
+            id="api-base-url"
             className="input"
             value={apiBase}
             onChange={(e) => setApiBase(e.target.value)}
             placeholder="http://localhost:3000"
             spellCheck={false}
           />
-          <button className="ghost" onClick={saveBase} disabled={savingBase}>
+          <button type="button" className="ghost" onClick={saveBase} disabled={savingBase}>
             {savingBase ? '…' : 'Save'}
           </button>
         </div>
-        <button className="link" onClick={openDashboard}>
+        <button type="button" className="link" onClick={openDashboard}>
           Open dashboard →
         </button>
       </section>

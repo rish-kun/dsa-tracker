@@ -7,7 +7,9 @@
     "build": "pnpm -r build",
     "db:generate": "pnpm --filter web db:generate",
     "db:migrate": "pnpm --filter web db:migrate",
-    "db:seed": "pnpm --filter web db:seed"
+    "db:seed": "pnpm --filter web db:seed",
+    "plan:keys": "pnpm --filter web plan:keys",
+    "plan:migrate": "pnpm --filter web plan:migrate"
   },
   "packageManager": "pnpm@11.7.0"
 }

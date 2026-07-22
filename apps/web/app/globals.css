@@ -1,860 +1,907 @@
-/* ---------------------------------------------------------------------- */
-/* Reset                                                                   */
-/* ---------------------------------------------------------------------- */
+@import 'tailwindcss';
+@import 'tw-animate-css';
 
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+/* ── Custom variant ── */
+@custom-variant dark (&:is(.dark *));
+
+/* ── Fonts ──
+   `--font-inter` / `--font-jetbrains-mono` are injected on <html> by next/font/google
+   in app/layout.tsx. They are declared on the root element (not <body>) so that the
+   var() substitution below resolves — custom properties are substituted at the element
+   where they are declared, and these are declared on :root. */
+@theme inline {
+  --font-sans: var(--font-inter), 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), 'JetBrains Mono', ui-monospace, monospace;
 }
 
-html {
-  color-scheme: dark;
-}
-
-/* ---------------------------------------------------------------------- */
-/* Design tokens — dark is the default surface for this tool; light is an */
-/* explicit override for prefers-color-scheme: light / data-theme="light" */
-/* ---------------------------------------------------------------------- */
-
+/* ─────────────────────────────────────────────
+   PT Design tokens — light mode (default)
+───────────────────────────────────────────── */
 :root {
-  --font-sans: ui-sans-serif, 'Segoe UI Variable', 'Segoe UI', -apple-system, BlinkMacSystemFont,
-    system-ui, Roboto, sans-serif;
-  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', 'JetBrains Mono', Menlo, Consolas,
-    monospace;
+  /* Base */
+  --pt-bg:        #f5f5f4;
+  --pt-surface:   #ffffff;
+  --pt-surface-2: #fafaf9;
+  --pt-border:    #e7e5e4;
+  --pt-border-2:  #d6d3d1;
 
-  --bg: #0d0d0d;
-  --surface: #1a1a19;
-  --surface-raised: #232320;
-  --ink: #f5f4f0;
-  --ink-secondary: #c3c2b7;
-  --ink-muted: #898781;
-  --gridline: #2c2c2a;
-  --baseline: #383835;
-  --border: rgba(255, 255, 255, 0.1);
+  /* Raised fill — hover states, table headers, tooltips.
+     Semantics inherited from the vanilla stylesheet's `--surface-raised`:
+     it must read as a *lift off* `--pt-surface`, which means subtly darker /
+     greyer than the white card in light mode and lighter in dark mode.
+     Deliberately NOT `--pt-surface-2`, which is darker than surface in dark. */
+  --pt-surface-raised: #f1f0ee;
 
-  --accent: #3987e5;
-  --accent-ink: #eaf1fd;
-  --accent-soft: rgba(57, 135, 229, 0.16);
+  /* Panel shadow — the vanilla `--shadow-panel`, verbatim per mode. */
+  --pt-shadow-panel: 0 1px 0 rgba(11, 11, 11, 0.05);
 
-  --src-leetcode: #3987e5;
-  --src-neetcode: #008300;
-  --src-tuf: #d55181;
-  --src-backfill: #c98500;
-  --src-other: #898781;
+  /* Pop-over / tooltip shadow. Per mode: light needs a soft, shallow lift,
+     dark needs the deep one the original dark-only stylesheet carried. */
+  --pt-shadow-pop: 0 4px 16px rgba(11, 11, 11, 0.1);
 
-  --diff-easy: #0ca30c;
-  --diff-medium: #fab219;
-  --diff-hard: #d03b3b;
+  /* Text — three-step de-emphasis ramp, shared by both idioms.
+     --pt-text-3 is the *muted* step (dates, counts, hints, placeholders). It was
+     #a8a29e, which only reached ~2.4:1 on --pt-surface; nudged one step darker
+     so it stays clearly muted but is actually readable. Structural labels
+     (table headers, chips) use --pt-text-2, never this. */
+  --pt-text:      #1c1917;
+  --pt-text-2:    #57534e;
+  --pt-text-3:    #94908a;
 
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --shadow-panel: 0 1px 0 rgba(0, 0, 0, 0.4);
+  /* ── Accents ──
+     Every family ships the same three roles so neither idiom has to invent one:
+       --pt-X       the accent itself: strokes, fills, small coloured text.
+                    Light values are darkened (like --pt-diff-* / --pt-src-*)
+                    so 10–12px coloured text clears 4.5:1 on white.
+       --pt-X-bg    the ~8–10% tint used as a chip / card fill.
+       --pt-X-ink   the *contrasting* ink for text sitting on --pt-X-bg in a
+                    selected control — never --pt-X, which is hue-on-hue.
+                    This is the `.filter-chip[data-active]` recipe. */
+
+  --pt-blue:       #2563eb;
+  --pt-blue-bg:    rgba(37,99,235,.08);
+  --pt-blue-ink:   #0d3a6e;
+  --pt-blue-ring:  rgba(37,99,235,.3);
+
+  --pt-green:      #0f7a37;
+  --pt-green-bg:   rgba(15,122,55,.09);
+  --pt-green-ink:  #0b4a23;
+
+  --pt-amber:      #b45309;
+  --pt-amber-bg:   rgba(180,83,9,.09);
+  --pt-amber-ink:  #6b3405;
+
+  --pt-rose:       #e11d48;
+  --pt-rose-bg:    rgba(225,29,72,.08);
+  --pt-rose-ink:   #8f1330;
+
+  --pt-violet:     #7c3aed;
+  --pt-violet-bg:  rgba(124,58,237,.08);
+  --pt-violet-ink: #40197d;
+
+  /* ── Domain: problem sources ──
+     Absorbed from the previous vanilla stylesheet's --src-* scale.
+     Light values are darkened so bars/dots/labels hold >=4:1 on --pt-surface. */
+  --pt-src-leetcode: #2a78d6;
+  --pt-src-neetcode: #008300;
+  --pt-src-tuf:      #c13a6b;
+  --pt-src-backfill: #a86e00;
+  --pt-src-other:    #79776f;
+
+  /* ── Domain: difficulty ──
+     Absorbed from the previous --diff-* scale (which was dark-only);
+     light values derived by darkening the same hues for contrast on white. */
+  --pt-diff-easy:   #0b7a0b;
+  --pt-diff-medium: #9a6300;
+  --pt-diff-hard:   #c02f2f;
+
+  /* shadcn compat */
+  --background: var(--pt-bg);
+  --foreground: var(--pt-text);
+  --card: var(--pt-surface);
+  --card-foreground: var(--pt-text);
+  --border: var(--pt-border);
+  --input: var(--pt-border);
+  --ring: var(--pt-blue);
+  --muted: var(--pt-surface-2);
+  --muted-foreground: var(--pt-text-3);
+  --radius: 0.5rem;
 }
 
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme='dark']) {
-    color-scheme: light;
-    --bg: #f9f9f7;
-    --surface: #fcfcfb;
-    --surface-raised: #f2f1ec;
-    --ink: #0b0b0b;
-    --ink-secondary: #52514e;
-    --ink-muted: #79776f;
-    --gridline: #e1e0d9;
-    --baseline: #c3c2b7;
-    --border: rgba(11, 11, 11, 0.1);
+/* ─────────────────────────────────────────────
+   PT Design tokens — dark mode
+───────────────────────────────────────────── */
+.dark {
+  --pt-bg:        #0c0a09;
+  --pt-surface:   #1c1917;
+  --pt-surface-2: #141312;
+  --pt-border:    #292524;
+  --pt-border-2:  #3a3633;
 
-    --accent: #2a78d6;
-    --accent-ink: #0d3a6e;
-    --accent-soft: rgba(42, 120, 214, 0.1);
+  /* Lighter than --pt-surface (#1c1917), matching the vanilla
+     #1a1a19 → #232320 lift. */
+  --pt-surface-raised: #252220;
 
-    --src-leetcode: #2a78d6;
-    --src-neetcode: #008300;
-    --src-tuf: #e87ba4;
-    --src-backfill: #eda100;
-    --src-other: #79776f;
+  --pt-shadow-panel: 0 1px 0 rgba(0, 0, 0, 0.4);
+  --pt-shadow-pop: 0 4px 16px rgba(0, 0, 0, 0.35);
 
-    --shadow-panel: 0 1px 0 rgba(11, 11, 11, 0.05);
+  --pt-text:      #fafaf9;
+  --pt-text-2:    #a8a29e;
+  /* Symmetric nudge to the light-mode one: was #57534e (~2.6:1 on --pt-surface). */
+  --pt-text-3:    #6b6560;
+
+  /* Inks stay clearly hued (not plain white) so the family a chip belongs to
+     is still readable at a glance in dark mode. */
+  --pt-blue:       #60a5fa;
+  --pt-blue-bg:    rgba(96,165,250,.1);
+  --pt-blue-ink:   #eaf1fd;
+  --pt-blue-ring:  rgba(96,165,250,.25);
+
+  --pt-green:      #4ade80;
+  --pt-green-bg:   rgba(74,222,128,.1);
+  --pt-green-ink:  #b6f2cd;
+
+  --pt-amber:      #fbbf24;
+  --pt-amber-bg:   rgba(251,191,36,.1);
+  --pt-amber-ink:  #fde3ac;
+
+  --pt-rose:       #fb7185;
+  --pt-rose-bg:    rgba(251,113,133,.1);
+  --pt-rose-ink:   #fecdd6;
+
+  --pt-violet:     #a78bfa;
+  --pt-violet-bg:  rgba(167,139,250,.1);
+  --pt-violet-ink: #ddd0fe;
+
+  /* Domain: problem sources — original dark-mode values, verbatim */
+  --pt-src-leetcode: #3987e5;
+  --pt-src-neetcode: #008300;
+  --pt-src-tuf:      #d55181;
+  --pt-src-backfill: #c98500;
+  --pt-src-other:    #898781;
+
+  /* Domain: difficulty — original dark-mode values, verbatim */
+  --pt-diff-easy:   #0ca30c;
+  --pt-diff-medium: #fab219;
+  --pt-diff-hard:   #d03b3b;
+
+  --background: var(--pt-bg);
+  --foreground: var(--pt-text);
+  --card: var(--pt-surface);
+  --card-foreground: var(--pt-text);
+  --border: var(--pt-border);
+  --input: var(--pt-border);
+  --ring: var(--pt-blue);
+  --muted: var(--pt-surface-2);
+  --muted-foreground: var(--pt-text-3);
+}
+
+@layer base {
+  * {
+    border-color: var(--pt-border);
+    outline-color: color-mix(in srgb, var(--pt-blue) 50%, transparent);
+  }
+  html {
+    background: var(--pt-bg);
+  }
+  body {
+    background: var(--pt-bg);
+    color: var(--pt-text);
+    /* 15px/1.5 was the vanilla stylesheet's base scale; every dashboard class
+       below is sized relative to it. Tailwind's preflight already sets
+       line-height: 1.5 on <html>, so only the size needs restoring. rem-based
+       Tailwind utilities are unaffected (they resolve against <html>). */
+    font-size: 15px;
+    -webkit-font-smoothing: antialiased;
   }
 }
 
-:root[data-theme='light'] {
-  color-scheme: light;
-  --bg: #f9f9f7;
-  --surface: #fcfcfb;
-  --surface-raised: #f2f1ec;
-  --ink: #0b0b0b;
-  --ink-secondary: #52514e;
-  --ink-muted: #79776f;
-  --gridline: #e1e0d9;
-  --baseline: #c3c2b7;
-  --border: rgba(11, 11, 11, 0.1);
-  --accent: #2a78d6;
-  --accent-ink: #0d3a6e;
-  --accent-soft: rgba(42, 120, 214, 0.1);
-  --src-leetcode: #2a78d6;
-  --src-neetcode: #008300;
-  --src-tuf: #e87ba4;
-  --src-backfill: #eda100;
-  --src-other: #79776f;
-  --shadow-panel: 0 1px 0 rgba(11, 11, 11, 0.05);
-}
+/* ═════════════════════════════════════════════════════════════════════════
+   Dashboard components — the original hand-written vanilla stylesheet,
+   restored verbatim in structure and metrics, with every raw colour token
+   remapped onto the shared --pt-* palette. Lives in @layer components so
+   Tailwind utilities (used by app/plan/*) always win on the same element.
+   ═════════════════════════════════════════════════════════════════════════ */
 
-body {
-  background: var(--bg);
-  color: var(--ink);
-  font-family: var(--font-sans);
-  font-size: 15px;
-  line-height: 1.5;
-  -webkit-font-smoothing: antialiased;
-}
+@layer components {
+  /* ------------------------------------------------------------------ */
+  /* Page shell                                                          */
+  /* ------------------------------------------------------------------ */
 
-a {
-  color: inherit;
-}
+  .page {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: clamp(28px, 5vw, 48px) clamp(16px, 4vw, 32px) 80px;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(20px, 3vw, 28px);
+  }
 
-button {
-  font: inherit;
-  color: inherit;
-  background: none;
-  border: none;
-  cursor: pointer;
-}
+  .page-header {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 4px;
+  }
 
-/* ---------------------------------------------------------------------- */
-/* Nav                                                                     */
-/* ---------------------------------------------------------------------- */
+  .page-title {
+    font-size: clamp(24px, 3vw, 30px);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
 
-.nav {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  background: var(--bg);
-  border-bottom: 1px solid var(--border);
-}
+  .page-subtitle {
+    color: var(--pt-text-2);
+    font-size: 14px;
+  }
 
-.nav-inner {
-  max-width: 1000px;
-  margin: 0 auto;
-  padding: 18px clamp(16px, 4vw, 32px);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
+  /* ------------------------------------------------------------------ */
+  /* Hero                                                                */
+  /* ------------------------------------------------------------------ */
 
-.nav-wordmark {
-  font-family: var(--font-mono);
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  text-decoration: none;
-  display: inline-flex;
-}
-
-.nav-wordmark-dim {
-  color: var(--ink-secondary);
-}
-
-.nav-wordmark-slash {
-  color: var(--accent);
-  padding: 0 1px;
-}
-
-.nav-links {
-  display: flex;
-  gap: 4px;
-}
-
-.nav-link {
-  text-decoration: none;
-  color: var(--ink-secondary);
-  font-size: 14px;
-  font-weight: 500;
-  padding: 7px 12px;
-  border-radius: var(--radius-sm);
-  transition: color 0.15s ease, background-color 0.15s ease;
-}
-
-.nav-link:hover {
-  color: var(--ink);
-  background: var(--surface-raised);
-}
-
-.nav-link[data-active] {
-  color: var(--ink);
-  background: var(--surface-raised);
-}
-
-/* ---------------------------------------------------------------------- */
-/* Page shell                                                              */
-/* ---------------------------------------------------------------------- */
-
-.page {
-  max-width: 1000px;
-  margin: 0 auto;
-  padding: clamp(28px, 5vw, 48px) clamp(16px, 4vw, 32px) 80px;
-  display: flex;
-  flex-direction: column;
-  gap: clamp(20px, 3vw, 28px);
-}
-
-.page-header {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 4px;
-}
-
-.page-title {
-  font-size: clamp(24px, 3vw, 30px);
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-
-.page-subtitle {
-  color: var(--ink-secondary);
-  font-size: 14px;
-}
-
-/* ---------------------------------------------------------------------- */
-/* Hero                                                                     */
-/* ---------------------------------------------------------------------- */
-
-.hero {
-  display: grid;
-  grid-template-columns: 1.8fr 1fr;
-  gap: clamp(16px, 3vw, 28px);
-  align-items: end;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--gridline);
-}
-
-.hero-label {
-  color: var(--ink-secondary);
-  font-size: 13px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin-bottom: 10px;
-}
-
-.hero-value {
-  font-family: var(--font-mono);
-  font-size: clamp(56px, 11vw, 104px);
-  font-weight: 600;
-  line-height: 0.95;
-  color: var(--ink);
-  letter-spacing: -0.03em;
-  font-variant-numeric: proportional-nums;
-}
-
-.hero-secondary {
-  border-left: 1px solid var(--gridline);
-  padding-left: clamp(14px, 2.5vw, 22px);
-  padding-bottom: 6px;
-}
-
-.hero-secondary-label {
-  color: var(--ink-secondary);
-  font-size: 12px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin-bottom: 6px;
-}
-
-.hero-secondary-value {
-  font-family: var(--font-mono);
-  font-size: clamp(28px, 4vw, 40px);
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  margin-bottom: 6px;
-}
-
-.hero-secondary-hint {
-  color: var(--ink-muted);
-  font-size: 12.5px;
-  line-height: 1.4;
-  max-width: 22ch;
-}
-
-@media (max-width: 640px) {
   .hero {
-    grid-template-columns: 1fr;
+    display: grid;
+    grid-template-columns: 1.8fr 1fr;
+    gap: clamp(16px, 3vw, 28px);
+    align-items: end;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--pt-border);
   }
+
+  .hero-label {
+    color: var(--pt-text-2);
+    font-size: 13px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 10px;
+  }
+
+  .hero-value {
+    font-family: var(--font-mono);
+    font-size: clamp(56px, 11vw, 104px);
+    font-weight: 600;
+    line-height: 0.95;
+    color: var(--pt-text);
+    letter-spacing: -0.03em;
+    font-variant-numeric: proportional-nums;
+  }
+
   .hero-secondary {
-    border-left: none;
-    border-top: 1px solid var(--gridline);
-    padding-left: 0;
-    padding-top: 16px;
+    border-left: 1px solid var(--pt-border);
+    padding-left: clamp(14px, 2.5vw, 22px);
+    padding-bottom: 6px;
   }
-}
 
-/* ---------------------------------------------------------------------- */
-/* Panels                                                                   */
-/* ---------------------------------------------------------------------- */
+  .hero-secondary-label {
+    color: var(--pt-text-2);
+    font-size: 12px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 6px;
+  }
 
-.panel {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: clamp(16px, 2.5vw, 22px);
-  box-shadow: var(--shadow-panel);
-}
+  .hero-secondary-value {
+    font-family: var(--font-mono);
+    font-size: clamp(28px, 4vw, 40px);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    margin-bottom: 6px;
+  }
 
-.panel-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 16px;
-}
+  .hero-secondary-hint {
+    color: var(--pt-text-3);
+    font-size: 12.5px;
+    line-height: 1.4;
+    max-width: 22ch;
+  }
 
-.panel-title {
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  margin-bottom: 16px;
-}
+  @media (max-width: 640px) {
+    .hero {
+      grid-template-columns: 1fr;
+    }
+    .hero-secondary {
+      border-left: none;
+      border-top: 1px solid var(--pt-border);
+      padding-left: 0;
+      padding-top: 16px;
+    }
+  }
 
-.panel-header .panel-title {
-  margin-bottom: 0;
-}
+  /* ------------------------------------------------------------------ */
+  /* Panels                                                              */
+  /* ------------------------------------------------------------------ */
 
-.panel-subtitle {
-  color: var(--ink-muted);
-  font-size: 12px;
-}
+  .panel {
+    background: var(--pt-surface);
+    border: 1px solid var(--pt-border);
+    border-radius: 10px;
+    padding: clamp(16px, 2.5vw, 22px);
+    box-shadow: var(--pt-shadow-panel);
+  }
 
-.panel-empty {
-  color: var(--ink-muted);
-  font-size: 13.5px;
-  padding: 8px 0 4px;
-}
+  .panel-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
 
-.grid-2 {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: clamp(16px, 3vw, 28px);
-  align-items: start;
-}
+  .panel-title {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin-bottom: 16px;
+  }
 
-@media (max-width: 760px) {
+  .panel-header .panel-title {
+    margin-bottom: 0;
+  }
+
+  .panel-subtitle {
+    color: var(--pt-text-3);
+    font-size: 12px;
+  }
+
+  .panel-empty {
+    color: var(--pt-text-3);
+    font-size: 13.5px;
+    padding: 8px 0 4px;
+  }
+
   .grid-2 {
-    grid-template-columns: 1fr;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: clamp(16px, 3vw, 28px);
+    align-items: start;
   }
-}
 
-/* ---------------------------------------------------------------------- */
-/* Difficulty stacked bar                                                   */
-/* ---------------------------------------------------------------------- */
+  @media (max-width: 760px) {
+    .grid-2 {
+      grid-template-columns: 1fr;
+    }
+  }
 
-.diff-bar {
-  display: flex;
-  gap: 2px;
-  height: 26px;
-  border-radius: 4px;
-  overflow: hidden;
-  background: var(--gridline);
-}
+  /* ------------------------------------------------------------------ */
+  /* Difficulty stacked bar                                              */
+  /* ------------------------------------------------------------------ */
 
-.diff-seg {
-  height: 100%;
-  min-width: 3px;
-}
+  .diff-bar {
+    display: flex;
+    gap: 2px;
+    height: 26px;
+    border-radius: 4px;
+    overflow: hidden;
+    background: var(--pt-border);
+  }
 
-.seg-easy {
-  background: var(--diff-easy);
-}
-.seg-medium {
-  background: var(--diff-medium);
-}
-.seg-hard {
-  background: var(--diff-hard);
-}
+  .diff-seg {
+    height: 100%;
+    min-width: 3px;
+  }
 
-.diff-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 20px;
-  margin-top: 16px;
-  list-style: none;
-}
+  .seg-easy {
+    background: var(--pt-diff-easy);
+  }
+  .seg-medium {
+    background: var(--pt-diff-medium);
+  }
+  .seg-hard {
+    background: var(--pt-diff-hard);
+  }
 
-.diff-legend-item {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 13.5px;
-}
+  .diff-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    margin-top: 16px;
+    list-style: none;
+  }
 
-.diff-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
+  .diff-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 13.5px;
+  }
 
-.diff-legend-label {
-  color: var(--ink-secondary);
-}
+  .diff-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
 
-.diff-legend-value {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  color: var(--ink);
-  font-weight: 600;
-}
+  .diff-legend-label {
+    color: var(--pt-text-2);
+  }
 
-/* ---------------------------------------------------------------------- */
-/* Source bars                                                              */
-/* ---------------------------------------------------------------------- */
+  .diff-legend-value {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--pt-text);
+    font-weight: 600;
+  }
 
-.src-bars {
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
+  /* ------------------------------------------------------------------ */
+  /* Source bars                                                         */
+  /* ------------------------------------------------------------------ */
 
-.src-bar-row {
-  display: grid;
-  grid-template-columns: 90px 1fr 44px;
-  align-items: center;
-  gap: 10px;
-}
+  .src-bars {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
 
-.src-bar-label {
-  font-size: 13px;
-  color: var(--ink-secondary);
-}
+  .src-bar-row {
+    display: grid;
+    grid-template-columns: 90px 1fr 44px;
+    align-items: center;
+    gap: 10px;
+  }
 
-.src-bar-track {
-  height: 10px;
-  background: var(--gridline);
-  border-radius: 4px;
-  overflow: hidden;
-}
+  .src-bar-label {
+    font-size: 13px;
+    color: var(--pt-text-2);
+  }
 
-.src-bar-fill {
-  display: block;
-  height: 100%;
-  border-radius: 4px;
-  min-width: 4px;
-}
+  .src-bar-track {
+    height: 10px;
+    background: var(--pt-border);
+    border-radius: 4px;
+    overflow: hidden;
+  }
 
-.src-bar-value {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  font-size: 13px;
-  text-align: right;
-  color: var(--ink);
-}
+  .src-bar-fill {
+    display: block;
+    height: 100%;
+    border-radius: 4px;
+    min-width: 4px;
+  }
 
-.src-leetcode {
-  background: var(--src-leetcode);
-}
-.src-neetcode {
-  background: var(--src-neetcode);
-}
-.src-tuf {
-  background: var(--src-tuf);
-}
-.src-backfill {
-  background: var(--src-backfill);
-}
-.src-other {
-  background: var(--src-other);
-}
+  .src-bar-value {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 13px;
+    text-align: right;
+    color: var(--pt-text);
+  }
 
-.src-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12.5px;
-  color: var(--ink-secondary);
-  white-space: nowrap;
-}
+  .src-leetcode {
+    background: var(--pt-src-leetcode);
+  }
+  .src-neetcode {
+    background: var(--pt-src-neetcode);
+  }
+  .src-tuf {
+    background: var(--pt-src-tuf);
+  }
+  .src-backfill {
+    background: var(--pt-src-backfill);
+  }
+  .src-other {
+    background: var(--pt-src-other);
+  }
 
-.src-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
+  .src-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    color: var(--pt-text-2);
+    white-space: nowrap;
+  }
 
-/* ---------------------------------------------------------------------- */
-/* Chips                                                                     */
-/* ---------------------------------------------------------------------- */
+  .src-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
 
-.chip {
-  display: inline-flex;
-  align-items: center;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid transparent;
-  white-space: nowrap;
-}
+  /* ------------------------------------------------------------------ */
+  /* Chips                                                               */
+  /* ------------------------------------------------------------------ */
 
-.chip-easy {
-  color: var(--diff-easy);
-  border-color: color-mix(in srgb, var(--diff-easy) 45%, transparent);
-  background: color-mix(in srgb, var(--diff-easy) 12%, transparent);
-}
-.chip-medium {
-  color: var(--diff-medium);
-  border-color: color-mix(in srgb, var(--diff-medium) 45%, transparent);
-  background: color-mix(in srgb, var(--diff-medium) 12%, transparent);
-}
-.chip-hard {
-  color: var(--diff-hard);
-  border-color: color-mix(in srgb, var(--diff-hard) 45%, transparent);
-  background: color-mix(in srgb, var(--diff-hard) 12%, transparent);
-}
-.chip-unknown {
-  color: var(--ink-muted);
-  border-color: var(--border);
-}
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
 
-/* ---------------------------------------------------------------------- */
-/* Recent list                                                              */
-/* ---------------------------------------------------------------------- */
+  .chip-easy {
+    color: var(--pt-diff-easy);
+    border-color: color-mix(in srgb, var(--pt-diff-easy) 45%, transparent);
+    background: color-mix(in srgb, var(--pt-diff-easy) 12%, transparent);
+  }
+  .chip-medium {
+    color: var(--pt-diff-medium);
+    border-color: color-mix(in srgb, var(--pt-diff-medium) 45%, transparent);
+    background: color-mix(in srgb, var(--pt-diff-medium) 12%, transparent);
+  }
+  .chip-hard {
+    color: var(--pt-diff-hard);
+    border-color: color-mix(in srgb, var(--pt-diff-hard) 45%, transparent);
+    background: color-mix(in srgb, var(--pt-diff-hard) 12%, transparent);
+  }
+  .chip-unknown {
+    /* --pt-text-3 is the *de-emphasis* ramp (dates, counts); on a chip it fell
+       to ~2.3:1 on the light card. Chip ink is always --pt-text-2 or an accent. */
+    color: var(--pt-text-2);
+    border-color: var(--pt-border);
+  }
 
-.recent-list {
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-}
+  /* ------------------------------------------------------------------ */
+  /* Micro-label — the ONE uppercase kicker recipe                       */
+  /* ------------------------------------------------------------------ */
 
-.recent-row {
-  display: grid;
-  grid-template-columns: 52px 1fr auto auto 64px;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 0;
-  border-top: 1px solid var(--gridline);
-  font-size: 13.5px;
-}
+  /* Shared by both idioms: the dashboard's table headers below and every
+     `micro-label` in src/components/plan/*. Defined once so the two halves
+     cannot drift on size, tracking or ink. It sits in @layer components, so a
+     Tailwind utility on the same element still wins (e.g. a one-off colour). */
+  .micro-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--pt-text-2);
+  }
 
-.recent-row:first-child {
-  border-top: none;
-}
+  /* ------------------------------------------------------------------ */
+  /* Recent list                                                         */
+  /* ------------------------------------------------------------------ */
 
-.recent-number {
-  font-family: var(--font-mono);
-  color: var(--ink-muted);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
+  .recent-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+  }
 
-.recent-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-decoration: none;
-  color: var(--ink);
-  font-weight: 500;
-}
-
-a.recent-title:hover {
-  color: var(--accent);
-}
-
-.recent-date {
-  color: var(--ink-muted);
-  font-size: 12px;
-  text-align: right;
-  white-space: nowrap;
-}
-
-@media (max-width: 560px) {
   .recent-row {
-    grid-template-columns: 40px 1fr;
-    grid-template-areas: 'num title' 'chip src' 'date date';
-    row-gap: 6px;
+    display: grid;
+    grid-template-columns: 52px 1fr auto auto 64px;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+    border-top: 1px solid var(--pt-border);
+    font-size: 13.5px;
   }
-  .recent-row > .chip {
-    grid-area: chip;
+
+  .recent-row:first-child {
+    border-top: none;
   }
-  .recent-row > .src-badge {
-    grid-area: src;
+
+  .recent-number {
+    font-family: var(--font-mono);
+    color: var(--pt-text-3);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
   }
-  .recent-row > .recent-date {
-    grid-area: date;
+
+  .recent-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-decoration: none;
+    color: var(--pt-text);
+    font-weight: 500;
+  }
+
+  a.recent-title:hover {
+    color: var(--pt-blue);
+  }
+
+  .recent-date {
+    color: var(--pt-text-3);
+    font-size: 12px;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  @media (max-width: 560px) {
+    .recent-row {
+      grid-template-columns: 40px 1fr;
+      grid-template-areas: 'num title' 'chip src' 'date date';
+      row-gap: 6px;
+    }
+    .recent-row > .chip {
+      grid-area: chip;
+    }
+    .recent-row > .src-badge {
+      grid-area: src;
+    }
+    .recent-row > .recent-date {
+      grid-area: date;
+      text-align: left;
+    }
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Chart                                                               */
+  /* ------------------------------------------------------------------ */
+
+  .chart-wrap {
+    position: relative;
+  }
+
+  .chart-svg {
+    width: 100%;
+    height: auto;
+    display: block;
+    overflow: visible;
+    cursor: crosshair;
+  }
+
+  .chart-baseline {
+    stroke: var(--pt-border-2);
+    stroke-width: 1;
+  }
+
+  .chart-area {
+    fill: var(--pt-blue);
+    opacity: 0.1;
+    stroke: none;
+  }
+
+  .chart-line {
+    fill: none;
+    stroke: var(--pt-blue);
+    stroke-width: 2;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+  }
+
+  .chart-crosshair {
+    stroke: var(--pt-border);
+    stroke-width: 1;
+  }
+
+  .chart-dot {
+    fill: var(--pt-blue);
+    stroke: var(--pt-surface);
+    stroke-width: 2;
+  }
+
+  .chart-axis-label {
+    fill: var(--pt-text-3);
+    font-size: 11px;
+    font-family: var(--font-sans);
+  }
+
+  .chart-axis-label-max {
+    font-family: var(--font-mono);
+  }
+
+  .chart-tooltip {
+    position: absolute;
+    top: 8px;
+    background: var(--pt-surface-raised);
+    border: 1px solid var(--pt-border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 12px;
+    pointer-events: none;
+    min-width: 108px;
+    box-shadow: var(--pt-shadow-pop);
+  }
+
+  .chart-tooltip-date {
+    font-weight: 600;
+    margin-bottom: 4px;
+    color: var(--pt-text);
+  }
+
+  .chart-tooltip-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    color: var(--pt-text-2);
+  }
+
+  .chart-tooltip-row strong {
+    font-family: var(--font-mono);
+    color: var(--pt-text);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .chart-tooltip-row-muted {
+    color: var(--pt-text-3);
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* Empty state                                                         */
+  /* ------------------------------------------------------------------ */
+
+  .empty-state {
+    border: 1px dashed var(--pt-border);
+    border-radius: 10px;
+    padding: clamp(32px, 6vw, 56px) clamp(20px, 5vw, 40px);
     text-align: left;
+    max-width: 46ch;
   }
-}
 
-/* ---------------------------------------------------------------------- */
-/* Chart                                                                     */
-/* ---------------------------------------------------------------------- */
+  .empty-state-mark {
+    font-family: var(--font-mono);
+    color: var(--pt-blue);
+    font-size: 22px;
+    margin-bottom: 12px;
+  }
 
-.chart-wrap {
-  position: relative;
-}
+  .empty-state-title {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
 
-.chart-svg {
-  width: 100%;
-  height: auto;
-  display: block;
-  overflow: visible;
-  cursor: crosshair;
-}
+  .empty-state-body {
+    color: var(--pt-text-2);
+    font-size: 14px;
+    line-height: 1.6;
+  }
 
-.chart-baseline {
-  stroke: var(--baseline);
-  stroke-width: 1;
-}
+  /* ------------------------------------------------------------------ */
+  /* Problems table                                                      */
+  /* ------------------------------------------------------------------ */
 
-.chart-area {
-  fill: var(--accent);
-  opacity: 0.1;
-  stroke: none;
-}
+  .table-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    align-items: center;
+    margin-bottom: 14px;
+  }
 
-.chart-line {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 2;
-  stroke-linejoin: round;
-  stroke-linecap: round;
-}
+  .search-input {
+    flex: 1 1 220px;
+    background: var(--pt-surface);
+    border: 1px solid var(--pt-border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 13.5px;
+    color: var(--pt-text);
+  }
 
-.chart-crosshair {
-  stroke: var(--gridline);
-  stroke-width: 1;
-}
+  .search-input::placeholder {
+    color: var(--pt-text-3);
+  }
 
-.chart-dot {
-  fill: var(--accent);
-  stroke: var(--surface);
-  stroke-width: 2;
-}
+  .search-input:focus {
+    outline: 2px solid var(--pt-blue);
+    outline-offset: -1px;
+  }
 
-.chart-axis-label {
-  fill: var(--ink-muted);
-  font-size: 11px;
-  font-family: var(--font-sans);
-}
+  .chip-group {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
 
-.chart-axis-label-max {
-  font-family: var(--font-mono);
-}
+  .filter-chip {
+    /* The vanilla stylesheet's base `button { cursor: pointer }` has no
+       equivalent in Tailwind v4's preflight, so it is restored per-class. */
+    cursor: pointer;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--pt-text-2);
+    border: 1px solid var(--pt-border);
+    border-radius: 999px;
+    padding: 5px 11px;
+    transition: all 0.15s ease;
+  }
 
-.chart-tooltip {
-  position: absolute;
-  top: 8px;
-  background: var(--surface-raised);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 8px 10px;
-  font-size: 12px;
-  pointer-events: none;
-  min-width: 108px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
-}
+  .filter-chip:hover {
+    color: var(--pt-text);
+    border-color: var(--pt-text-3);
+  }
 
-.chart-tooltip-date {
-  font-weight: 600;
-  margin-bottom: 4px;
-  color: var(--ink);
-}
+  .filter-chip[data-active] {
+    color: var(--pt-blue-ink);
+    background: var(--pt-blue-bg);
+    border-color: color-mix(in srgb, var(--pt-blue) 50%, transparent);
+  }
 
-.chart-tooltip-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  color: var(--ink-secondary);
-}
+  .table-count {
+    color: var(--pt-text-3);
+    font-size: 12.5px;
+    margin-bottom: 10px;
+  }
 
-.chart-tooltip-row strong {
-  font-family: var(--font-mono);
-  color: var(--ink);
-  font-variant-numeric: tabular-nums;
-}
+  .table-scroll {
+    overflow-x: auto;
+    /* Keep a horizontal swipe past the end of the table inside the table —
+       without this, iOS/Android hand the gesture to the browser and trigger
+       back-navigation. */
+    overscroll-behavior-x: contain;
+    border: 1px solid var(--pt-border);
+    border-radius: 10px;
+  }
 
-.chart-tooltip-row-muted {
-  color: var(--ink-muted);
-}
+  .problems-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+  }
 
-/* ---------------------------------------------------------------------- */
-/* Empty state                                                              */
-/* ---------------------------------------------------------------------- */
+  .problems-table th {
+    text-align: left;
+    /* Same recipe as `.micro-label` — see there. Was 11.5px/.05em/--pt-text-3,
+       which read at ~2.2:1 on --pt-surface-raised in light mode. */
+    color: var(--pt-text-2);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--pt-border);
+    background: var(--pt-surface-raised);
+    white-space: nowrap;
+  }
 
-.empty-state {
-  border: 1px dashed var(--border);
-  border-radius: var(--radius-md);
-  padding: clamp(32px, 6vw, 56px) clamp(20px, 5vw, 40px);
-  text-align: left;
-  max-width: 46ch;
-}
+  .problems-table td {
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--pt-border);
+    white-space: nowrap;
+  }
 
-.empty-state-mark {
-  font-family: var(--font-mono);
-  color: var(--accent);
-  font-size: 22px;
-  margin-bottom: 12px;
-}
+  .problems-table tbody tr:last-child td {
+    border-bottom: none;
+  }
 
-.empty-state-title {
-  font-size: 18px;
-  font-weight: 600;
-  margin-bottom: 8px;
-}
+  .problems-table tbody tr:hover {
+    background: var(--pt-surface-raised);
+  }
 
-.empty-state-body {
-  color: var(--ink-secondary);
-  font-size: 14px;
-  line-height: 1.6;
-}
+  .th-sort {
+    cursor: pointer;
+    color: inherit;
+    font: inherit;
+    text-transform: inherit;
+    letter-spacing: inherit;
+  }
 
-/* ---------------------------------------------------------------------- */
-/* Problems table                                                           */
-/* ---------------------------------------------------------------------- */
+  .cell-number {
+    font-family: var(--font-mono);
+    color: var(--pt-text-3);
+    font-variant-numeric: tabular-nums;
+  }
 
-.table-controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px 14px;
-  align-items: center;
-  margin-bottom: 14px;
-}
+  .cell-problem {
+    min-width: 240px;
+  }
 
-.search-input {
-  flex: 1 1 220px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 8px 12px;
-  font-size: 13.5px;
-  color: var(--ink);
-}
+  .cell-title {
+    color: var(--pt-text);
+    font-weight: 500;
+  }
 
-.search-input::placeholder {
-  color: var(--ink-muted);
-}
+  .review-links {
+    display: flex;
+    gap: 10px;
+    margin-top: 3px;
+  }
 
-.search-input:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: -1px;
-}
+  .review-links a {
+    color: var(--pt-text-3);
+    font-size: 11.5px;
+    text-decoration: none;
+  }
 
-.chip-group {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
+  .review-links a:hover {
+    color: var(--pt-blue);
+  }
 
-.filter-chip {
-  font-size: 12.5px;
-  font-weight: 500;
-  color: var(--ink-secondary);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 5px 11px;
-  transition: all 0.15s ease;
-}
-
-.filter-chip:hover {
-  color: var(--ink);
-  border-color: var(--ink-muted);
-}
-
-.filter-chip[data-active] {
-  color: var(--accent-ink);
-  background: var(--accent-soft);
-  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
-}
-
-.table-count {
-  color: var(--ink-muted);
-  font-size: 12.5px;
-  margin-bottom: 10px;
-}
-
-.table-scroll {
-  overflow-x: auto;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-}
-
-.problems-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13.5px;
-}
-
-.problems-table th {
-  text-align: left;
-  color: var(--ink-muted);
-  font-size: 11.5px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-weight: 600;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface-raised);
-  white-space: nowrap;
-}
-
-.problems-table td {
-  padding: 9px 14px;
-  border-bottom: 1px solid var(--gridline);
-  white-space: nowrap;
-}
-
-.problems-table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-.problems-table tbody tr:hover {
-  background: var(--surface-raised);
-}
-
-.th-sort {
-  color: inherit;
-  font: inherit;
-  text-transform: inherit;
-  letter-spacing: inherit;
-}
-
-.cell-number {
-  font-family: var(--font-mono);
-  color: var(--ink-muted);
-  font-variant-numeric: tabular-nums;
-}
-
-.cell-problem {
-  min-width: 240px;
-}
-
-.cell-title {
-  color: var(--ink);
-  font-weight: 500;
-}
-
-.review-links {
-  display: flex;
-  gap: 10px;
-  margin-top: 3px;
-}
-
-.review-links a {
-  color: var(--ink-muted);
-  font-size: 11.5px;
-  text-decoration: none;
-}
-
-.review-links a:hover {
-  color: var(--accent);
-}
-
-.cell-date {
-  color: var(--ink-muted);
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  font-size: 12.5px;
+  .cell-date {
+    color: var(--pt-text-3);
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 12.5px;
+  }
 }

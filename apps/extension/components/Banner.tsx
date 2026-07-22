@@ -41,30 +41,145 @@ function formatDate(iso: string): string {
   });
 }
 
-// px units only — rem is unreliable inside shadow DOM.
+/**
+ * Banner styles. Two hard rules apply here and are easy to break:
+ *
+ * 1. **px units only.** This renders inside a shadow root overlaid on
+ *    leetcode.com / neetcode.io / takeuforward.org — `rem` resolves against
+ *    the *host page's* root font size, which we do not control, so any rem
+ *    would resize unpredictably per site. Unitless line-heights are fine.
+ *
+ * 2. **The --pt-* values are COPIED LITERALS** mirrored from the web app's
+ *    apps/web/app/globals.css (:root = light, .dark = dark). A content script
+ *    cannot import the Next.js stylesheet, so the palette is duplicated. Keep
+ *    them in sync; every value below appears verbatim in globals.css.
+ *
+ * They are declared on `.dsa-card` (not `:host`, not `*`) so nothing leaks
+ * into — or is inherited from — the host page, and every selector stays
+ * prefixed with `dsa-`.
+ *
+ * WHY prefers-color-scheme HERE AND A CLASS ON THE WEB:
+ * the web app resolves dark mode from a `.dark` class written before first
+ * paint by an inline script reading localStorage['pt_theme']. A content script
+ * lives on the *host page's* DOM and has no such class to hook (and cannot see
+ * the extension's or the web app's localStorage), so the OS preference is the
+ * only signal available. This media query is correct here and must not be
+ * "fixed" into a class toggle, nor copied back into globals.css.
+ */
 const CSS = `
-.dsa-card{position:fixed;bottom:20px;right:20px;width:360px;max-width:calc(100vw - 40px);
-  box-sizing:border-box;background:#1e1e24;color:#ffffff;border-radius:12px;padding:16px 18px;
-  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-  font-size:14px;line-height:1.4;box-shadow:0 10px 30px rgba(0,0,0,0.45);
-  border:1px solid rgba(255,255,255,0.08);animation:dsa-slide-in 240ms cubic-bezier(0.16,1,0.3,1);}
+.dsa-card{
+  /* ── PT tokens — light (mirrors globals.css :root) ── */
+  --pt-bg:#f5f5f4;
+  --pt-surface:#ffffff;
+  --pt-surface-2:#fafaf9;
+  --pt-surface-raised:#f1f0ee;
+  --pt-border:#e7e5e4;
+  --pt-border-2:#d6d3d1;
+  --pt-text:#1c1917;
+  --pt-text-2:#57534e;
+  --pt-text-3:#a8a29e;
+  --pt-blue:#3b82f6;
+  --pt-blue-bg:rgba(59,130,246,.08);
+  --pt-blue-ink:#0d3a6e;
+  --pt-blue-ring:rgba(59,130,246,.3);
+  --pt-green:#16a34a;
+  --pt-green-bg:rgba(22,163,74,.08);
+  --pt-amber:#d97706;
+  --pt-amber-bg:rgba(217,119,6,.08);
+  --pt-rose:#e11d48;
+  --pt-rose-bg:rgba(225,29,72,.08);
+  --pt-violet:#7c3aed;
+  --pt-violet-bg:rgba(124,58,237,.08);
+  --pt-src-leetcode:#2a78d6;
+  --pt-src-neetcode:#008300;
+  --pt-src-tuf:#c13a6b;
+  --pt-src-backfill:#a86e00;
+  --pt-src-other:#79776f;
+  --pt-diff-easy:#0b7a0b;
+  --pt-diff-medium:#9a6300;
+  --pt-diff-hard:#c02f2f;
+  --pt-card-shadow:0 10px 30px rgba(11,11,11,0.14);
+  /* Inter / JetBrains Mono ship with the web app via next/font and are not
+     available here; named first so a local install is used, then system UI. */
+  --pt-font-sans:'Inter',ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --pt-font-mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+
+  position:fixed;bottom:20px;right:20px;width:360px;max-width:calc(100vw - 40px);
+  z-index:2147483647;
+  box-sizing:border-box;background:var(--pt-surface);color:var(--pt-text);
+  border-radius:10px;padding:16px 18px;
+  font-family:var(--pt-font-sans);
+  font-size:14px;line-height:1.4;box-shadow:var(--pt-card-shadow);
+  border:1px solid var(--pt-border);animation:dsa-slide-in 240ms cubic-bezier(0.16,1,0.3,1);}
+@media (prefers-color-scheme: dark){
+  .dsa-card{
+    /* ── PT tokens — dark (mirrors globals.css .dark) ── */
+    --pt-bg:#0c0a09;
+    --pt-surface:#1c1917;
+    --pt-surface-2:#141312;
+    --pt-surface-raised:#252220;
+    --pt-border:#292524;
+    --pt-border-2:#3a3633;
+    --pt-text:#fafaf9;
+    --pt-text-2:#a8a29e;
+    --pt-text-3:#57534e;
+    --pt-blue:#60a5fa;
+    --pt-blue-bg:rgba(96,165,250,.1);
+    --pt-blue-ink:#eaf1fd;
+    --pt-blue-ring:rgba(96,165,250,.25);
+    --pt-green:#4ade80;
+    --pt-green-bg:rgba(74,222,128,.1);
+    --pt-amber:#fbbf24;
+    --pt-amber-bg:rgba(251,191,36,.1);
+    --pt-rose:#fb7185;
+    --pt-rose-bg:rgba(251,113,133,.1);
+    --pt-violet:#a78bfa;
+    --pt-violet-bg:rgba(167,139,250,.1);
+    --pt-src-leetcode:#3987e5;
+    --pt-src-neetcode:#008300;
+    --pt-src-tuf:#d55181;
+    --pt-src-backfill:#c98500;
+    --pt-src-other:#898781;
+    --pt-diff-easy:#0ca30c;
+    --pt-diff-medium:#fab219;
+    --pt-diff-hard:#d03b3b;
+    --pt-card-shadow:0 10px 30px rgba(0,0,0,0.55);}
+}
 @keyframes dsa-slide-in{from{transform:translateX(24px);opacity:0}to{transform:translateX(0);opacity:1}}
-.dsa-close{position:absolute;top:10px;right:12px;background:none;border:none;color:#9ca3af;
-  font-size:18px;line-height:1;cursor:pointer;padding:2px 6px;border-radius:6px;}
-.dsa-close:hover{color:#ffffff;background:rgba(255,255,255,0.08);}
+.dsa-close{position:absolute;top:10px;right:12px;background:none;border:none;color:var(--pt-text-3);
+  font-family:inherit;font-size:18px;line-height:1;cursor:pointer;padding:2px 6px;border-radius:6px;
+  transition:color .15s ease,background-color .15s ease;}
+.dsa-close:hover{color:var(--pt-text);background:var(--pt-surface-raised);}
 .dsa-row{display:flex;align-items:center;gap:10px;}
-.dsa-dot{width:10px;height:10px;border-radius:50%;flex:0 0 auto;}
-.dsa-dot.green{background:#22c55e;box-shadow:0 0 0 4px rgba(34,197,94,0.18);}
-.dsa-dot.blue{background:#3b82f6;box-shadow:0 0 0 4px rgba(59,130,246,0.18);}
-.dsa-dot.amber{background:#f59e0b;box-shadow:0 0 0 4px rgba(245,158,11,0.18);}
-.dsa-head{font-weight:600;font-size:15px;padding-right:16px;}
-.dsa-sub{color:#9ca3af;margin-top:6px;font-size:13px;}
-.dsa-title{color:#e5e7eb;font-weight:600;}
-.dsa-big{font-size:22px;font-weight:700;color:#22c55e;}
-.dsa-btn{margin-top:12px;width:100%;background:#3b82f6;color:#fff;border:none;border-radius:8px;
-  padding:9px 12px;font-size:14px;font-weight:600;cursor:pointer;}
-.dsa-btn:hover{background:#2563eb;}
-.dsa-btn:disabled{opacity:0.6;cursor:default;}
+.dsa-dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto;}
+.dsa-dot.green{background:var(--pt-green);box-shadow:0 0 0 4px var(--pt-green-bg);}
+.dsa-dot.blue{background:var(--pt-blue);box-shadow:0 0 0 4px var(--pt-blue-bg);}
+.dsa-dot.amber{background:var(--pt-amber);box-shadow:0 0 0 4px var(--pt-amber-bg);}
+.dsa-head{font-weight:600;font-size:14px;letter-spacing:-0.01em;padding-right:16px;color:var(--pt-text);}
+.dsa-sub{color:var(--pt-text-2);margin-top:6px;font-size:12.5px;}
+.dsa-title{color:var(--pt-text);font-weight:600;}
+/* Uppercase letter-spaced micro-label, matching the dashboard's .hero-label.
+   Kept inline so it can sit ahead of a value without restructuring markup. */
+.dsa-meta{font-size:10px;font-weight:600;text-transform:uppercase;
+  letter-spacing:0.06em;color:var(--pt-text-3);}
+/* Source hues come from the shared domain tokens, so a LeetCode badge here is
+   the same blue as the LeetCode bar on the dashboard. Unknown sources fall
+   through to --pt-src-other. */
+.dsa-src{color:var(--pt-src-other);}
+.dsa-src-leetcode{color:var(--pt-src-leetcode);}
+.dsa-src-neetcode{color:var(--pt-src-neetcode);}
+.dsa-src-tuf{color:var(--pt-src-tuf);}
+.dsa-src-backfill{color:var(--pt-src-backfill);}
+.dsa-big{font-family:var(--pt-font-mono);font-variant-numeric:tabular-nums;
+  font-size:20px;font-weight:600;letter-spacing:-0.02em;color:var(--pt-text);}
+/* Solid --pt-blue fill takes --pt-bg as its ink (the web app's filled-control
+   idiom); --pt-blue-ink is for text on the --pt-blue-bg tint, not on solid. */
+.dsa-btn{margin-top:12px;width:100%;background:var(--pt-blue);color:var(--pt-bg);
+  border:1px solid transparent;border-radius:6px;
+  padding:9px 12px;font-family:inherit;font-size:13px;font-weight:600;letter-spacing:-0.01em;
+  cursor:pointer;transition:background-color .15s ease;}
+.dsa-btn:hover:not(:disabled){background:color-mix(in srgb,var(--pt-blue) 85%,var(--pt-text));}
+.dsa-btn:disabled{opacity:0.55;cursor:default;}
 `;
 
 function Card({ view }: { view: BannerView }) {
@@ -73,7 +188,7 @@ function Card({ view }: { view: BannerView }) {
     <div className="dsa-card" role="status">
       <style>{CSS}</style>
       {onClose && (
-        <button className="dsa-close" aria-label="Dismiss" onClick={onClose}>
+        <button type="button" className="dsa-close" aria-label="Dismiss" onClick={onClose}>
           ×
         </button>
       )}
@@ -84,7 +199,10 @@ function Card({ view }: { view: BannerView }) {
             <span className="dsa-head">Already solved ✓</span>
           </div>
           <div className="dsa-sub">
-            First solved via {sourceLabel(state.source)}
+            First solved via{' '}
+            <span className={`dsa-src dsa-src-${state.source}`}>
+              {sourceLabel(state.source)}
+            </span>
             {formatDate(state.date) ? ` on ${formatDate(state.date)}` : ''}.
           </div>
           {state.title && <div className="dsa-sub dsa-title">{state.title}</div>}
@@ -99,7 +217,7 @@ function Card({ view }: { view: BannerView }) {
           <div className="dsa-sub">
             You're viewing <span className="dsa-title">{state.title}</span>.
           </div>
-          <button className="dsa-btn" disabled={state.busy} onClick={onMark}>
+          <button type="button" className="dsa-btn" disabled={state.busy} onClick={onMark}>
             {state.busy ? 'Saving…' : 'Mark as completed'}
           </button>
         </>
@@ -113,7 +231,8 @@ function Card({ view }: { view: BannerView }) {
             </span>
           </div>
           <div className="dsa-sub">
-            {state.label}: <span className="dsa-big">{state.total}</span>
+            <span className="dsa-meta">{state.label}</span>:{' '}
+            <span className="dsa-big">{state.total}</span>
           </div>
         </>
       )}

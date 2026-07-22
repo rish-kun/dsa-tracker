@@ -17,6 +17,27 @@ const PAD_RIGHT = 8;
 const PAD_TOP = 16;
 const PAD_BOTTOM = 28;
 
+/**
+ * `.chart-axis-label`'s 11px is 11 *user units*, so it scales with the viewBox
+ * rather than staying 11 screen px: on a 360px phone the svg renders ~294px
+ * wide (scale 0.41) and the labels land at ~4.5px. Below the stylesheet's 560px
+ * breakpoint the size is restated in user units so the rendered text stays
+ * ~9-15px. A utility beats `@layer components`, so this overrides the class
+ * without touching the stylesheet — and it is type size only: no geometry, no
+ * change to the scale math.
+ */
+const AXIS_LABEL = 'chart-axis-label max-[560px]:text-[22px]';
+
+/**
+ * The tooltip is placed at `left: <x>%` and flipped once x passes
+ * `WIDTH - 140` — but 140 is a *user unit* budget, so it only really reserves
+ * the tooltip's ~108px once the svg renders at >=555px (i.e. from `sm` up).
+ * Narrower than that it would hang off the right edge, so below `sm` the
+ * tooltip is pinned across the chart instead of tracking the cursor. `!` is
+ * required because `left`/`transform` are inline styles.
+ */
+const TOOLTIP_PIN = 'max-sm:[left:8px]! max-sm:[right:8px]! max-sm:[transform:none]!';
+
 export function SolvesOverTimeChart({ points }: { points: CumulativePoint[] }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
@@ -62,7 +83,7 @@ export function SolvesOverTimeChart({ points }: { points: CumulativePoint[] }) {
 
   if (points.length === 0) {
     return (
-      <div className="panel chart-panel">
+      <div className="panel">
         <h2 className="panel-title">Solves over time</h2>
         <p className="panel-empty">Your cumulative progress chart will show up here after your first solve.</p>
       </div>
@@ -73,7 +94,7 @@ export function SolvesOverTimeChart({ points }: { points: CumulativePoint[] }) {
   const tooltipFlip = hover && hover.x > WIDTH - 140;
 
   return (
-    <div className="panel chart-panel">
+    <div className="panel">
       <div className="panel-header">
         <h2 className="panel-title">Solves over time</h2>
         <span className="panel-subtitle">cumulative, first-solve per day</span>
@@ -109,19 +130,19 @@ export function SolvesOverTimeChart({ points }: { points: CumulativePoint[] }) {
               <circle cx={hover.x} cy={hover.y} r={5} className="chart-dot" />
             </>
           )}
-          <text x={PAD_LEFT} y={HEIGHT - 8} className="chart-axis-label">
+          <text x={PAD_LEFT} y={HEIGHT - 8} className={AXIS_LABEL}>
             {formatDate(points[0].date)}
           </text>
-          <text x={WIDTH - PAD_RIGHT} y={HEIGHT - 8} className="chart-axis-label" textAnchor="end">
+          <text x={WIDTH - PAD_RIGHT} y={HEIGHT - 8} className={AXIS_LABEL} textAnchor="end">
             {formatDate(points.at(-1)!.date)}
           </text>
-          <text x={PAD_LEFT} y={PAD_TOP + 4} className="chart-axis-label chart-axis-label-max">
+          <text x={PAD_LEFT} y={PAD_TOP + 4} className={`${AXIS_LABEL} chart-axis-label-max`}>
             {maxY.toLocaleString('en-US')}
           </text>
         </svg>
         {hover && (
           <div
-            className="chart-tooltip"
+            className={`chart-tooltip ${TOOLTIP_PIN}`}
             style={{
               left: `${(hover.x / WIDTH) * 100}%`,
               transform: tooltipFlip ? 'translateX(-100%)' : 'none',

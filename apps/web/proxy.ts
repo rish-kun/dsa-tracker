@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 // Open CORS on /api/* — personal single-user project, no auth by design.
+// Next 16 renamed the `middleware` file convention to `proxy`; this is the same
+// interceptor, Node-runtime only (it never declared runtime: 'edge').
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type',
 };
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   if (request.method === 'OPTIONS') {
     return new NextResponse(null, { status: 204, headers: CORS_HEADERS });
   }

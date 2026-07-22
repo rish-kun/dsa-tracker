@@ -3,7 +3,7 @@
 ## 1. Build it
 
 ```sh
-cd ~/Coding/dsa-tracker
+cd /Users/rishit/Coding/dsa-merged
 pnpm install          # first time only
 cd apps/extension
 pnpm build            # outputs to .output/chrome-mv3/
@@ -14,7 +14,8 @@ pnpm build            # outputs to .output/chrome-mv3/
 1. Open a new tab and go to `chrome://extensions`.
 2. Toggle **Developer mode** ON (top-right corner).
 3. Click **Load unpacked** (top-left).
-4. Select the folder `~/Coding/dsa-tracker/apps/extension/.output/chrome-mv3`
+4. Select the folder
+   `/Users/rishit/Coding/dsa-merged/apps/extension/.output/chrome-mv3`
    (the folder that contains `manifest.json`, not its parent).
 5. "DSA Tracker" appears in the list. Pin it: puzzle-piece icon in the toolbar →
    pin **DSA Tracker**.

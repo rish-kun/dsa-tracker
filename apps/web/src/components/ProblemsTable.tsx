@@ -63,7 +63,10 @@ export function ProblemsTable({ rows }: { rows: SolvedProblem[] }) {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search by title or slug…"
-          className="search-input"
+          // `.search-input` is `flex: 1 1 220px`, so it already takes the whole
+          // first row of `.table-controls` once the chip groups wrap; only the
+          // 37px control height needs raising for touch.
+          className="search-input max-sm:min-h-[44px]"
           aria-label="Search problems"
         />
         <div className="chip-group" role="group" aria-label="Filter by difficulty">
@@ -100,7 +103,7 @@ export function ProblemsTable({ rows }: { rows: SolvedProblem[] }) {
             <thead>
               <tr>
                 <th>
-                  <button type="button" className="th-sort" onClick={() => toggleSort('number')}>
+                  <button type="button" className="th-sort max-sm:min-h-[40px]" onClick={() => toggleSort('number')}>
                     # {sortKey === 'number' && (sortDir === 'asc' ? '↑' : '↓')}
                   </button>
                 </th>
@@ -108,7 +111,7 @@ export function ProblemsTable({ rows }: { rows: SolvedProblem[] }) {
                 <th>Difficulty</th>
                 <th>Source</th>
                 <th>
-                  <button type="button" className="th-sort" onClick={() => toggleSort('date')}>
+                  <button type="button" className="th-sort max-sm:min-h-[40px]" onClick={() => toggleSort('date')}>
                     Solved {sortKey === 'date' && (sortDir === 'asc' ? '↑' : '↓')}
                   </button>
                 </th>
@@ -165,7 +168,15 @@ function FilterChip({
   children: ReactNode;
 }) {
   return (
-    <button type="button" className="filter-chip" data-active={active || undefined} onClick={onClick}>
+    <button
+      type="button"
+      // `.filter-chip` is a 29px pill. Below `sm` it grows to a 40px tap target
+      // (a full 44 turns the two wrapped chip rows into a wall) — desktop keeps
+      // the stylesheet's metrics untouched.
+      className="filter-chip max-sm:min-h-[40px] max-sm:px-3.5"
+      data-active={active || undefined}
+      onClick={onClick}
+    >
       {children}
     </button>
   );

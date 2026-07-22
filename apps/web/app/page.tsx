@@ -32,7 +32,12 @@ export default async function DashboardPage() {
         <>
           <DifficultyBar byDifficulty={stats.byDifficulty} />
           <SolvesOverTimeChart points={cumulative} />
-          <div className="grid-2">
+          {/* `.grid-2` collapses at 760px, but `.recent-row`'s fixed tracks
+              (52px + chip + source badge + 64px date ≈ 310px) do not fit a
+              half-width column until the page is at its 1000px cap — between
+              761px and ~900px the title track was squeezed to a few pixels of
+              ellipsis. Hold one column until `lg`. */}
+          <div className="grid-2 grid-cols-1 lg:grid-cols-2">
             <SourceBars bySource={stats.bySource} />
             <RecentList recent={stats.recent} />
           </div>

@@ -110,6 +110,15 @@ export default defineContentScript({
         isLc ? t.lcUnique : t.other;
 
       const res = await sendMessage({ type: 'CHECK_PROBLEM', canonicalKey: det.key });
+      // NOT parallelizable despite carrying no data dependency: ensureBanner()
+      // mounts a shadow-root banner in the page in the transient 'queued'
+      // state. It must stay downstream of CHECK_PROBLEM so that (a) the banner
+      // renders straight into its final state instead of flashing 'queued' for
+      // the round-trip, and (b) a rejected sendMessage (asleep service worker /
+      // invalidated extension context — routine under MV3) leaves nothing
+      // mounted, rather than a stuck 'queued' card with no onClose wired yet.
+      // Matches leetcode.content and neetcode.content, which sequence the same.
+      // react-doctor-disable-next-line react-doctor/server-sequential-independent-await
       const b = await ensureBanner();
 
       if (res.solved && res.entry) {
