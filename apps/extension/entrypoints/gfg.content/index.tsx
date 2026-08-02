@@ -7,64 +7,77 @@ import {
   slugify,
 } from '../../lib/site-adapter';
 
-function looksLikeProblemPage(): boolean {
-  if (leetcodeSlugFromAnchor()) return true;
-  if (document.querySelector('.monaco-editor, .ace_editor, [class*="editor"] textarea')) {
-    return true;
-  }
-  const segments = location.pathname.split('/').filter(Boolean);
-  return segments[0] === 'plus' && segments.length >= 3;
+function currentSlug(): string | null {
+  return location.pathname.match(/^\/problems\/([^/?#]+)/)?.[1] ?? null;
+}
+
+function problemTitle(): string {
+  const heading = document.querySelector('main h1, article h1, h1')?.textContent?.trim();
+  const raw = heading || document.title;
+  return raw
+    .replace(/\s*[-|]\s*geeks(?:for)?geeks.*$/i, '')
+    .replace(/^practice\s*[|:-]\s*/i, '')
+    .trim() || raw;
 }
 
 export default defineContentScript({
-  matches: ['*://takeuforward.org/*'],
+  // GFG has moved problem pages between its main site and the legacy practice
+  // host. Both expose a /problems/<slug>/ canonical route.
+  matches: [
+    '*://geeksforgeeks.org/problems/*',
+    '*://www.geeksforgeeks.org/problems/*',
+    '*://practice.geeksforgeeks.org/problems/*',
+  ],
   runAt: 'document_idle',
   async main(ctx: ContentScriptContext) {
     const runner = createSiteAdapterRunner(ctx, {
       mode: 'manual',
-      isProblemPage: looksLikeProblemPage,
+      isProblemPage: () => currentSlug() !== null,
       totalFor(payload, totals) {
         return payload.canonicalKey.startsWith('lc:')
           ? { label: 'Unique total', total: totals.lcUnique }
           : { label: 'Other total', total: totals.other };
       },
       async detect(): Promise<SolveRequest | null> {
-        const anchorSlug = leetcodeSlugFromAnchor();
-        const segments = location.pathname.split('/').filter(Boolean);
-        if (!looksLikeProblemPage()) return null;
-
-        const raw = document.querySelector('h1')?.textContent?.trim() || document.title;
-        const title = raw.replace(/\s*[-|]\s*take\s*u\s*forward.*$/i, '').trim() || raw;
+        const slug = currentSlug();
+        if (!slug) return null;
+        const title = problemTitle();
+        const anchorSlug = leetcodeSlugFromAnchor(
+          document,
+          'main a[href*="leetcode.com/problems/"], article a[href*="leetcode.com/problems/"], [class*="problem"] a[href*="leetcode.com/problems/"]',
+        );
         if (anchorSlug) {
           return {
             canonicalKey: `lc:${anchorSlug}`,
             lcSlug: anchorSlug,
             title,
-            source: 'tuf',
+            source: 'gfg',
             url: location.href,
             detected: 'manual',
           };
         }
 
         const resolved = await resolveCatalog({ title });
+        // A lookup outage is not a catalog miss: avoid recording a gfg: key
+        // that the next successful lookup would have upgraded to lc:.
         if (resolved.kind === 'unavailable') return null;
         if (resolved.kind === 'match') {
           return {
             canonicalKey: `lc:${resolved.lcSlug}`,
             lcSlug: resolved.lcSlug,
             title: resolved.title,
-            source: 'tuf',
+            source: 'gfg',
             url: location.href,
             detected: 'manual',
           };
         }
 
-        const fallback = slugify(segments.at(-1) ?? '') || slugify(title);
+        const fallback = slugify(slug);
         if (!fallback) return null;
         return {
-          canonicalKey: `tuf:${fallback}`,
+          canonicalKey: `gfg:${fallback}`,
           title: title || fallback.replace(/-/g, ' '),
-          source: 'tuf',
+          source: 'gfg',
           url: location.href,
           detected: 'manual',
         };
@@ -72,15 +85,6 @@ export default defineContentScript({
     });
 
     runner.registerMessages();
-
-    // TUF+ changes content after the history update. A title observer catches
-    // that late render while the runner coalesces repeated DOM mutations.
-    const title = document.querySelector('title');
-    if (title) {
-      const observer = new MutationObserver(() => runner.scheduleCheck());
-      observer.observe(title, { childList: true });
-      ctx.onInvalidated(() => observer.disconnect());
-    }
     runner.scheduleCheck();
   },
 });

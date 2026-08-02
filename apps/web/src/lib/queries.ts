@@ -4,7 +4,7 @@ import type {
   SolvedProblem,
   Totals,
 } from '@dsa-tracker/shared';
-import { desc, eq, or, sql } from 'drizzle-orm';
+import { and, desc, eq, or, sql } from 'drizzle-orm';
 import { db, planChecks, problems, solvedProblems, solveEvents } from '@/db';
 
 type SolvedRow = typeof solvedProblems.$inferSelect;
@@ -47,6 +47,7 @@ const sourceUrlSql = sql<string | null>`(
   select ev.url
   from ${solveEvents} ev
   where ev.canonical_key = "solved_problems"."canonical_key"
+    and ev.user_id = "solved_problems"."user_id"
     and ev.url is not null
   order by (ev.source = "solved_problems"."first_source") desc,
            ev.created_at asc,
@@ -57,6 +58,7 @@ const sourceUrlSql = sql<string | null>`(
 /** Every solved_problems column plus the derived sourceUrl, in one row shape. */
 const solvedWithUrl = {
   canonicalKey: solvedProblems.canonicalKey,
+  userId: solvedProblems.userId,
   lcSlug: solvedProblems.lcSlug,
   title: solvedProblems.title,
   difficulty: solvedProblems.difficulty,
@@ -65,7 +67,7 @@ const solvedWithUrl = {
   sourceUrl: sourceUrlSql,
 };
 
-export async function getTotals(): Promise<Totals> {
+export async function getTotals(userId: string): Promise<Totals> {
   const [totals] = await db
     .select({
       lcUnique: sql<number>`count(*) filter (
@@ -75,15 +77,16 @@ export async function getTotals(): Promise<Totals> {
         where ${solvedProblems.canonicalKey} not like 'lc:%'
       )::int`,
     })
-    .from(solvedProblems);
+    .from(solvedProblems)
+    .where(eq(solvedProblems.userId, userId));
   return totals ?? { lcUnique: 0, other: 0 };
 }
 
-export async function getSolved(key: string): Promise<SolvedProblem | null> {
+export async function getSolved(userId: string, key: string): Promise<SolvedProblem | null> {
   const [row] = await db
     .select(solvedWithUrl)
     .from(solvedProblems)
-    .where(eq(solvedProblems.canonicalKey, key))
+    .where(and(eq(solvedProblems.userId, userId), eq(solvedProblems.canonicalKey, key)))
     .limit(1);
   return row ? toSolvedProblem(row, row.sourceUrl) : null;
 }
@@ -146,6 +149,7 @@ function canonicalValues(problem: ProblemRow) {
  */
 async function reconcileAlias(
   executor: DbExecutor,
+  userId: string,
   aliasKey: string,
   problem: ProblemRow,
 ): Promise<boolean> {
@@ -155,18 +159,19 @@ async function reconcileAlias(
   const [alias] = await executor
     .select()
     .from(solvedProblems)
-    .where(eq(solvedProblems.canonicalKey, aliasKey))
+    .where(and(eq(solvedProblems.userId, userId), eq(solvedProblems.canonicalKey, aliasKey)))
     .limit(1);
   if (!alias) return false;
 
   const [existing] = await executor
     .select()
     .from(solvedProblems)
-    .where(eq(solvedProblems.canonicalKey, canonical.canonicalKey))
+    .where(and(eq(solvedProblems.userId, userId), eq(solvedProblems.canonicalKey, canonical.canonicalKey)))
     .limit(1);
 
   if (!existing) {
     await executor.insert(solvedProblems).values({
+      userId,
       ...canonical,
       firstSource: alias.firstSource,
       firstSolvedAt: alias.firstSolvedAt,
@@ -182,29 +187,30 @@ async function reconcileAlias(
         firstSource: aliasIsEarlier ? alias.firstSource : existing.firstSource,
         firstSolvedAt: aliasIsEarlier ? alias.firstSolvedAt : existing.firstSolvedAt,
       })
-      .where(eq(solvedProblems.canonicalKey, canonical.canonicalKey));
+      .where(and(eq(solvedProblems.userId, userId), eq(solvedProblems.canonicalKey, canonical.canonicalKey)));
   }
 
   await executor
     .update(solveEvents)
     .set({ canonicalKey: canonical.canonicalKey })
-    .where(eq(solveEvents.canonicalKey, aliasKey));
-  await executor.delete(solvedProblems).where(eq(solvedProblems.canonicalKey, aliasKey));
+    .where(and(eq(solveEvents.userId, userId), eq(solveEvents.canonicalKey, aliasKey)));
+  await executor.delete(solvedProblems).where(and(eq(solvedProblems.userId, userId), eq(solvedProblems.canonicalKey, aliasKey)));
   return true;
 }
 
 export async function reconcileNeetcodeAlias(
+  userId: string,
   aliasKey: string,
   problem: ProblemRow,
 ): Promise<boolean> {
-  return db.transaction((tx) => reconcileAlias(tx as DbExecutor, aliasKey, problem));
+  return db.transaction((tx) => reconcileAlias(tx as DbExecutor, userId, aliasKey, problem));
 }
 
 /**
  * Records a solve. Upserts into solved_problems (no-op when already solved)
  * and always logs a solve_event. Returns whether the problem was new.
  */
-export async function recordSolve(req: SolveRequest): Promise<{
+export async function recordSolve(userId: string, req: SolveRequest): Promise<{
   isNew: boolean;
   entry: SolvedProblem;
   alreadySolved: SolvedProblem | null;
@@ -214,11 +220,19 @@ export async function recordSolve(req: SolveRequest): Promise<{
   let difficulty: string | null = null;
   let resolvedProblem: ProblemRow | null = null;
 
-  // The server, not the extension, owns NeetCode canonicalization. A queued
-  // nc: solve is upgraded here once the API/catalog is reachable again.
-  if (req.source === 'neetcode' && canonicalKey.startsWith('nc:')) {
-    const ncId = canonicalKey.slice(3);
-    resolvedProblem = await resolveCatalogProblem(lcSlug ?? ncId, title);
+  // The server, not the extension, owns interview-site canonicalization. A
+  // queued fallback key is upgraded once the catalog is reachable again. The
+  // alias is scoped to this user below, so equal slugs across users never mix.
+  const fallbackPrefix = req.source === 'neetcode'
+    ? 'nc:'
+    : req.source === 'tuf'
+      ? 'tuf:'
+      : req.source === 'gfg'
+        ? 'gfg:'
+        : null;
+  if (fallbackPrefix && canonicalKey.startsWith(fallbackPrefix)) {
+    const siteId = canonicalKey.slice(fallbackPrefix.length);
+    resolvedProblem = await resolveCatalogProblem(lcSlug ?? siteId, title);
     if (resolvedProblem) {
       canonicalKey = `lc:${resolvedProblem.lcSlug}`;
       lcSlug = resolvedProblem.lcSlug;
@@ -244,22 +258,24 @@ export async function recordSolve(req: SolveRequest): Promise<{
 
   return db.transaction(async (tx) => {
     const mergedAlias = resolvedProblem
-      ? await reconcileAlias(tx as DbExecutor, req.canonicalKey, resolvedProblem)
+      ? await reconcileAlias(tx as DbExecutor, userId, req.canonicalKey, resolvedProblem)
       : false;
 
     const inserted = await tx
       .insert(solvedProblems)
       .values({
+        userId,
         canonicalKey,
         lcSlug: lcSlug ?? null,
         title,
         difficulty,
         firstSource: req.source,
       })
-      .onConflictDoNothing()
+      .onConflictDoNothing({ target: [solvedProblems.userId, solvedProblems.canonicalKey] })
       .returning({ canonicalKey: solvedProblems.canonicalKey });
 
     await tx.insert(solveEvents).values({
+      userId,
       canonicalKey,
       source: req.source,
       url: req.url,
@@ -272,7 +288,7 @@ export async function recordSolve(req: SolveRequest): Promise<{
     if (req.detected !== 'backfill') {
       await tx
         .delete(planChecks)
-        .where(sql`${planChecks.done} = false and ${planChecks.checkId} like ${`prob:%:${canonicalKey}`}`);
+        .where(and(eq(planChecks.userId, userId), sql`${planChecks.done} = false and ${planChecks.checkId} like ${`prob:%:${canonicalKey}`}`));
     }
 
     // Authoritative row and its first-source URL in one statement. Previously
@@ -288,6 +304,7 @@ export async function recordSolve(req: SolveRequest): Promise<{
           select ev.url
           from ${solveEvents} ev
           where ev.canonical_key = "solved_problems"."canonical_key"
+            and ev.user_id = "solved_problems"."user_id"
             and ev.source = "solved_problems"."first_source"
             and ev.url is not null
           order by ev.created_at asc, ev.id asc
@@ -295,7 +312,7 @@ export async function recordSolve(req: SolveRequest): Promise<{
         )`,
       })
       .from(solvedProblems)
-      .where(eq(solvedProblems.canonicalKey, canonicalKey))
+      .where(and(eq(solvedProblems.userId, userId), eq(solvedProblems.canonicalKey, canonicalKey)))
       .limit(1);
     if (!row) throw new Error(`failed to record ${canonicalKey}`);
 
@@ -309,18 +326,20 @@ export async function recordSolve(req: SolveRequest): Promise<{
   });
 }
 
-export async function getAllSolved(): Promise<SolvedProblem[]> {
+export async function getAllSolved(userId: string): Promise<SolvedProblem[]> {
   const rows = await db
     .select(solvedWithUrl)
     .from(solvedProblems)
+    .where(eq(solvedProblems.userId, userId))
     .orderBy(desc(solvedProblems.firstSolvedAt));
   return rows.map((row) => toSolvedProblem(row, row.sourceUrl));
 }
 
-export async function getRecent(limit: number): Promise<SolvedProblem[]> {
+export async function getRecent(userId: string, limit: number): Promise<SolvedProblem[]> {
   const rows = await db
     .select(solvedWithUrl)
     .from(solvedProblems)
+    .where(eq(solvedProblems.userId, userId))
     .orderBy(desc(solvedProblems.firstSolvedAt))
     .limit(limit);
   return rows.map((row) => toSolvedProblem(row, row.sourceUrl));

@@ -1,5 +1,5 @@
 /** Where a solve was detected. */
-export type Source = 'leetcode' | 'neetcode' | 'tuf' | 'backfill';
+export type Source = 'leetcode' | 'neetcode' | 'tuf' | 'gfg' | 'backfill';
 
 /** How a solve was recorded. */
 export type Detected = 'auto' | 'manual' | 'backfill';
@@ -85,6 +85,10 @@ export interface BackfillResponse {
 /** GET /api/resolve response. */
 export interface ResolveResponse {
   problem: Problem | null;
+  /** The catalog could not be reached. This is deliberately distinct from a
+   * successful lookup with no match, so site adapters never create a fallback
+   * key during an outage. */
+  unavailable?: boolean;
 }
 
 /**
@@ -128,12 +132,29 @@ export type ExtMessage =
   | { type: 'REFRESH_CACHE' }
   | { type: 'GET_ACTIVE_PROBLEM' }
   | { type: 'SET_API_BASE'; baseUrl: string }
+  | { type: 'SET_API_KEY'; key: string }
+  | { type: 'CLEAR_API_KEY' }
+  | { type: 'OPEN_POPUP' }
+  /** Service worker tells page adapters to discard identity-bound UI/cache. */
+  | { type: 'AUTH_PROFILE_CHANGED' }
   | { type: 'RUN_BACKFILL' }
   | { type: 'RUN_NC_IMPORT' };
 
 export interface CheckProblemResponse {
   solved: boolean;
   entry: SolvedProblem | null;
+  /** Lets auto-detect sites explain why they cannot read/write yet. */
+  authState: AuthState;
+}
+
+export type AuthState = 'ok' | 'missing-key' | 'invalid-key' | 'api-error';
+
+export interface RejectedQueueItem {
+  canonicalKey: string;
+  title: string;
+  status: number | null;
+  error: string | null;
+  rejectedAt: number;
 }
 
 /** Snapshot of the service worker's local cache, served to the popup. */
@@ -144,6 +165,15 @@ export interface CachedState {
   pending: number;
   /** Whether the last API contact succeeded. */
   apiOk: boolean;
+  /** Authentication is separate from reachability: queued work is retained
+   * for missing or revoked credentials. */
+  authState: AuthState;
+  /** Whether an API key is configured for the active base/key profile. */
+  hasApiKey: boolean;
+  /** Permanently rejected writes kept for inspection instead of blocking FIFO. */
+  rejected: number;
+  /** Visible dead-letter details, newest first. Secrets are never included. */
+  rejectedItems: RejectedQueueItem[];
   apiBaseUrl: string;
   /** Epoch ms of the last successful cache sync, or null if never. */
   lastSync: number | null;

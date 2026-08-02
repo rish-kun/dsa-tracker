@@ -17,5 +17,8 @@ export function apiErrorResponse(route: string, error: unknown) {
   // Logging an Error object directly can print driver-specific properties such
   // as `input`, which Node's URL parser fills with the complete connection URI.
   console.error(`${route} failed: ${message}`);
-  return NextResponse.json({ error: message }, { status: 500 });
+  return NextResponse.json(
+    { error: 'Internal server error' },
+    { status: 500, headers: { 'Cache-Control': 'no-store', Vary: 'Authorization' } },
+  );
 }

@@ -5,6 +5,7 @@ import type {
   CachedState,
   CheckProblemResponse,
   ExtMessage,
+  AuthState,
   ImportRequest,
   ImportResponse,
   PageProblemMessage,
@@ -30,11 +31,14 @@ const REFRESH_ALARM = 'dsa-refresh';
 const REFRESH_MINUTES = 30;
 
 // chrome.storage.local keys
-const K_API_BASE = 'apiBaseUrl';
-const K_CACHE = 'solvedCache';
-const K_PENDING = 'pendingSolves';
+const K_API_BASE = 'apiBaseUrl'; // v1, retained only for migration
+const K_CACHE = 'solvedCache'; // v1, retained only for migration
+const K_PENDING = 'pendingSolves'; // v1, retained only for migration
+const K_STATE = 'trackerStateV2';
+const STORAGE_VERSION = 2;
 
 interface SolvedCache {
+  version: number;
   keys: string[];
   solved: SolvedProblem[];
   totals: Totals;
@@ -43,52 +47,216 @@ interface SolvedCache {
 
 const EMPTY_TOTALS: Totals = { lcUnique: 0, other: 0 };
 const EMPTY_CACHE: SolvedCache = {
+  version: STORAGE_VERSION,
   keys: [],
   solved: [],
   totals: EMPTY_TOTALS,
   lastSync: null,
 };
 
-// In-memory, per-SW-life state.
-let apiOk = true;
-const resolveCache = new Map<string, ResolveResponse>();
+interface QueuedSolve {
+  /** Stable identity used to finish only the request that was actually sent. */
+  id: string;
+  payload: SolveRequest;
+  queuedAt: number;
+  attempts: number;
+  lastStatus?: number;
+  lastError?: string;
+}
+
+interface RejectedSolve extends QueuedSolve {
+  rejectedAt: number;
+}
+
+interface ProfileState {
+  apiBaseUrl: string;
+  /** Stored only in chrome.storage.local. Never returned to popup callers. */
+  apiKey: string | null;
+  cache: SolvedCache;
+  pending: QueuedSolve[];
+  deadLetters: RejectedSolve[];
+  resolveCache: Record<string, ResolveResponse>;
+  authState: AuthState;
+}
+
+interface ExtensionState {
+  version: number;
+  activeProfileId: string;
+  profiles: Record<string, ProfileState>;
+  /** Legacy queued writes are adopted by the first configured API key. */
+  legacyPending: QueuedSolve[];
+}
+
+class HttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'HttpError';
+  }
+}
+
+class MissingApiKeyError extends Error {
+  constructor() {
+    super('No extension API key configured.');
+    this.name = 'MissingApiKeyError';
+  }
+}
+
+type FlushOutcome = 'ok' | 'retry' | 'unauthorized' | 'missing-key';
+
+let storageSerial: Promise<void> = Promise.resolve();
+const flushInFlight = new Map<string, Promise<FlushOutcome>>();
+
+function normalizeBase(base?: string): string {
+  const value = base?.trim().replace(/\/+$/, '');
+  return value || DEFAULT_API_BASE;
+}
+
+async function credentialFingerprint(key: string | null): Promise<string> {
+  if (!key) return 'anonymous';
+  const bytes = new TextEncoder().encode(key);
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(digest)]
+    .slice(0, 12)
+    .map((value) => value.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+async function profileId(base: string, key: string | null): Promise<string> {
+  return `${normalizeBase(base)}|${await credentialFingerprint(key)}`;
+}
+
+function createProfile(base: string, key: string | null): ProfileState {
+  return {
+    apiBaseUrl: normalizeBase(base),
+    apiKey: key,
+    cache: { ...EMPTY_CACHE, totals: { ...EMPTY_TOTALS } },
+    pending: [],
+    deadLetters: [],
+    resolveCache: {},
+    authState: key ? 'ok' : 'missing-key',
+  };
+}
+
+function queuedSolveId(): string {
+  return crypto.randomUUID();
+}
 
 // ---------------------------------------------------------------------------
 // storage helpers
 // ---------------------------------------------------------------------------
 
+async function migrateState(): Promise<ExtensionState> {
+  const stored = await chrome.storage.local.get([K_STATE, K_API_BASE, K_CACHE, K_PENDING]);
+  const existing = stored[K_STATE] as ExtensionState | undefined;
+  if (existing?.version === STORAGE_VERSION && existing.profiles && existing.activeProfileId) {
+    // Early v2 development builds did not give queue entries stable ids. Heal
+    // those records in place so a service-worker update cannot reintroduce the
+    // in-flight head-removal race.
+    let healed = false;
+    for (const profile of Object.values(existing.profiles)) {
+      profile.pending = profile.pending.map((item) => {
+        if (item.id) return item;
+        healed = true;
+        return { ...item, id: queuedSolveId() };
+      });
+      profile.deadLetters = profile.deadLetters.map((item) => {
+        if (item.id) return item;
+        healed = true;
+        return { ...item, id: queuedSolveId() };
+      });
+    }
+    existing.legacyPending = (existing.legacyPending ?? []).map((item) => {
+      if (item.id) return item;
+      healed = true;
+      return { ...item, id: queuedSolveId() };
+    });
+    // Persist healed ids before a flush captures one. Otherwise each read of an
+    // early-v2 record would mint a different id and the completed request could
+    // never remove the item it actually sent.
+    if (healed) await chrome.storage.local.set({ [K_STATE]: existing });
+    return existing;
+  }
+
+  const base = normalizeBase(typeof stored[K_API_BASE] === 'string' ? stored[K_API_BASE] : undefined);
+  const id = await profileId(base, null);
+  const oldPending = Array.isArray(stored[K_PENDING]) ? (stored[K_PENDING] as SolveRequest[]) : [];
+  const state: ExtensionState = {
+    version: STORAGE_VERSION,
+    activeProfileId: id,
+    // Do not carry the v1 solved cache across identities. It may belong to a
+    // different user; a fresh authenticated sync is cheap and safe.
+    profiles: { [id]: createProfile(base, null) },
+    legacyPending: oldPending.map((payload) => ({
+      id: queuedSolveId(),
+      payload,
+      queuedAt: Date.now(),
+      attempts: 0,
+    })),
+  };
+  await chrome.storage.local.set({ [K_STATE]: state });
+  return state;
+}
+
+async function withState<T>(fn: (state: ExtensionState) => Promise<T> | T): Promise<T> {
+  const previous = storageSerial;
+  let release!: () => void;
+  storageSerial = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await previous;
+  try {
+    const state = await migrateState();
+    const result = await fn(state);
+    await chrome.storage.local.set({ [K_STATE]: state });
+    return result;
+  } finally {
+    release();
+  }
+}
+
+async function readState(): Promise<ExtensionState> {
+  await storageSerial;
+  return migrateState();
+}
+
+function activeProfile(state: ExtensionState): ProfileState {
+  const profile = state.profiles[state.activeProfileId];
+  if (profile) return profile;
+  const fallback = createProfile(DEFAULT_API_BASE, null);
+  state.profiles[state.activeProfileId] = fallback;
+  return fallback;
+}
+
 async function getApiBase(): Promise<string> {
-  const v = await chrome.storage.local.get(K_API_BASE);
-  const base = v[K_API_BASE];
-  return typeof base === 'string' && base ? base.replace(/\/+$/, '') : DEFAULT_API_BASE;
+  return activeProfile(await readState()).apiBaseUrl;
 }
 
 async function readCache(): Promise<SolvedCache> {
-  const v = await chrome.storage.local.get(K_CACHE);
-  const c = v[K_CACHE] as SolvedCache | undefined;
-  return c ?? EMPTY_CACHE;
+  return activeProfile(await readState()).cache;
 }
 
-async function writeCache(cache: SolvedCache): Promise<void> {
-  await chrome.storage.local.set({ [K_CACHE]: cache });
-}
-
-async function readPending(): Promise<SolveRequest[]> {
-  const v = await chrome.storage.local.get(K_PENDING);
-  const p = v[K_PENDING] as SolveRequest[] | undefined;
-  return Array.isArray(p) ? p : [];
-}
-
-async function writePending(pending: SolveRequest[]): Promise<void> {
-  await chrome.storage.local.set({ [K_PENDING]: pending });
-}
-
-/** Queue an offline write, deduped by canonicalKey (last one wins). */
-async function enqueuePending(payload: SolveRequest): Promise<void> {
-  const pending = await readPending();
-  const next = pending.filter((p) => p.canonicalKey !== payload.canonicalKey);
-  next.push(payload);
-  await writePending(next);
+async function enqueuePending(
+  payload: SolveRequest,
+  error?: unknown,
+  targetProfileId?: string,
+): Promise<void> {
+  await withState((state) => {
+    const profile = targetProfileId ? state.profiles[targetProfileId] : activeProfile(state);
+    if (!profile) return;
+    const failure = queueFailure(error);
+    profile.pending = profile.pending.filter((item) => item.payload.canonicalKey !== payload.canonicalKey);
+    profile.pending.push({
+      id: queuedSolveId(),
+      payload,
+      queuedAt: Date.now(),
+      attempts: 0,
+      ...(failure.status === undefined ? {} : { lastStatus: failure.status }),
+      ...(failure.message ? { lastError: failure.message } : {}),
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -96,7 +264,7 @@ async function enqueuePending(payload: SolveRequest): Promise<void> {
 // ---------------------------------------------------------------------------
 
 /** Build an error carrying the server's message, not just the status code. */
-async function httpError(method: string, path: string, res: Response): Promise<Error> {
+async function httpError(method: string, path: string, res: Response): Promise<HttpError> {
   let detail = '';
   try {
     const text = await res.text();
@@ -109,21 +277,38 @@ async function httpError(method: string, path: string, res: Response): Promise<E
     // body unavailable
   }
   detail = detail.trim().slice(0, 200);
-  return new Error(`${method} ${path} -> ${res.status}${detail ? `: ${detail}` : ''}`);
+  return new HttpError(res.status, `${method} ${path} -> ${res.status}${detail ? `: ${detail}` : ''}`);
 }
 
 async function apiGet<T>(path: string): Promise<T> {
-  const base = await getApiBase();
-  const res = await fetch(`${base}${path}`, { method: 'GET' });
+  const profile = activeProfile(await readState());
+  return apiGetForProfile(profile, path);
+}
+
+async function apiGetForProfile<T>(profile: Pick<ProfileState, 'apiBaseUrl' | 'apiKey'>, path: string): Promise<T> {
+  if (!profile.apiKey) throw new MissingApiKeyError();
+  const res = await fetch(`${profile.apiBaseUrl}${path}`, {
+    method: 'GET',
+    headers: { authorization: `Bearer ${profile.apiKey}` },
+  });
   if (!res.ok) throw await httpError('GET', path, res);
   return (await res.json()) as T;
 }
 
 async function apiPost<T>(path: string, body: unknown): Promise<T> {
-  const base = await getApiBase();
-  const res = await fetch(`${base}${path}`, {
+  const profile = activeProfile(await readState());
+  return apiPostForProfile(profile, path, body);
+}
+
+async function apiPostForProfile<T>(
+  profile: Pick<ProfileState, 'apiBaseUrl' | 'apiKey'>,
+  path: string,
+  body: unknown,
+): Promise<T> {
+  if (!profile.apiKey) throw new MissingApiKeyError();
+  const res = await fetch(`${profile.apiBaseUrl}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${profile.apiKey}` },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw await httpError('POST', path, res);
@@ -134,51 +319,152 @@ async function apiPost<T>(path: string, body: unknown): Promise<T> {
 // cache sync
 // ---------------------------------------------------------------------------
 
-/** POST every queued solve; on any failure throw so the caller marks API down
- * and keeps the queue for the next attempt. Successful items are dropped. */
-async function flushPending(): Promise<void> {
-  let pending = await readPending();
-  while (pending.length > 0) {
-    const next = pending[0];
-    await apiPost<SolveResponse>('/api/solve', next); // throws if API down
-    pending = pending.slice(1);
-    await writePending(pending);
+function queueFailure(error: unknown): { status?: number; message?: string } {
+  if (error instanceof HttpError) return { status: error.status, message: error.message };
+  if (error instanceof Error) return { message: error.message };
+  return { message: 'Request failed.' };
+}
+
+async function setAuthState(authState: AuthState): Promise<void> {
+  await withState((state) => {
+    activeProfile(state).authState = authState;
+  });
+}
+
+async function setProfileAuthState(profileId: string, authState: AuthState): Promise<void> {
+  await withState((state) => {
+    const profile = state.profiles[profileId];
+    if (profile) profile.authState = authState;
+  });
+}
+
+/** A single-flight FIFO drain. A permanently bad item is retained in the
+ * dead-letter list and cannot starve later solves. */
+function flushPending(targetProfileId?: string): Promise<FlushOutcome> {
+  const start = targetProfileId;
+  if (!start) {
+    return readState().then((state) => flushPending(state.activeProfileId));
   }
+  const existing = flushInFlight.get(start);
+  if (existing) return existing;
+  const job = (async () => {
+    for (;;) {
+      const state = await readState();
+      const profile = state.profiles[start];
+      if (!profile) return 'ok';
+      if (!profile.apiKey) {
+        await withState((next) => {
+          const target = next.profiles[start];
+          if (target) target.authState = 'missing-key';
+        });
+        return 'missing-key';
+      }
+      const queued = profile.pending[0];
+      if (!queued) return 'ok';
+      const queuedId = queued.id;
+      try {
+        await apiPostForProfile<SolveResponse>(profile, '/api/solve', queued.payload);
+        await withState((next) => {
+          const target = next.profiles[start];
+          if (!target) return;
+          target.pending = target.pending.filter((item) => item.id !== queuedId);
+          target.authState = 'ok';
+        });
+      } catch (error) {
+        const failure = queueFailure(error);
+        await withState((next) => {
+          const current = next.profiles[start];
+          if (!current) return;
+          const item = current.pending.find((candidate) => candidate.id === queuedId);
+          if (!item) return;
+          item.attempts += 1;
+          if (failure.status !== undefined) item.lastStatus = failure.status;
+          if (failure.message) item.lastError = failure.message;
+          if (failure.status === 400 || failure.status === 422) {
+            current.deadLetters.push({ ...item, rejectedAt: Date.now() });
+            current.pending = current.pending.filter((candidate) => candidate.id !== queuedId);
+          } else if (failure.status === 401 || failure.status === 403) {
+            current.authState = 'invalid-key';
+          } else if (error instanceof MissingApiKeyError) {
+            current.authState = 'missing-key';
+          } else {
+            current.authState = 'api-error';
+          }
+        });
+        if (failure.status === 400 || failure.status === 422) continue;
+        if (failure.status === 401 || failure.status === 403) return 'unauthorized';
+        return error instanceof MissingApiKeyError ? 'missing-key' : 'retry';
+      }
+    }
+  })().finally(() => {
+    flushInFlight.delete(start);
+  });
+  flushInFlight.set(start, job);
+  return job;
 }
 
 /** Refresh the solved cache from the API and flush queued writes. Never throws;
  * on failure it leaves the existing cache in place and flags the API as down. */
 async function syncCache(): Promise<CachedState> {
+  const initial = await readState();
+  const targetProfileId = initial.activeProfileId;
+  const targetProfile = initial.profiles[targetProfileId];
+  if (!targetProfile) return buildCachedState();
   try {
-    await flushPending();
-    const solved = await apiGet<SolvedListResponse>('/api/solved');
+    const flushOutcome = await flushPending(targetProfileId);
+    if (flushOutcome !== 'ok') return buildCachedState();
+    const solved = await apiGetForProfile<SolvedListResponse>(targetProfile, '/api/solved');
     const cache: SolvedCache = {
+      version: STORAGE_VERSION,
       keys: solved.keys,
       solved: solved.solved,
       totals: solved.totals,
       lastSync: Date.now(),
     };
-    await writeCache(cache);
-    apiOk = true;
-  } catch {
-    apiOk = false;
+    await withState((state) => {
+      const profile = state.profiles[targetProfileId];
+      if (!profile) return;
+      profile.cache = cache;
+      profile.authState = 'ok';
+    });
+  } catch (error) {
+    await withState((state) => {
+      const profile = state.profiles[targetProfileId];
+      if (!profile) return;
+      profile.authState =
+        error instanceof MissingApiKeyError
+          ? 'missing-key'
+          : error instanceof HttpError && (error.status === 401 || error.status === 403)
+            ? 'invalid-key'
+            : 'api-error';
+    });
   }
   return buildCachedState();
 }
 
 async function buildCachedState(): Promise<CachedState> {
-  const [cache, pending, apiBaseUrl] = await Promise.all([
-    readCache(),
-    readPending(),
-    getApiBase(),
-  ]);
+  const profile = activeProfile(await readState());
   return {
-    totals: cache.totals,
-    solved: cache.solved,
-    pending: pending.length,
-    apiOk,
-    apiBaseUrl,
-    lastSync: cache.lastSync,
+    totals: profile.cache.totals,
+    solved: profile.cache.solved,
+    pending: profile.pending.length,
+    apiOk: profile.authState === 'ok',
+    authState: profile.authState,
+    hasApiKey: !!profile.apiKey,
+    rejected: profile.deadLetters.length,
+    rejectedItems: profile.deadLetters
+      .slice()
+      .sort((a, b) => b.rejectedAt - a.rejectedAt)
+      .slice(0, 10)
+      .map((item) => ({
+        canonicalKey: item.payload.canonicalKey,
+        title: item.payload.title,
+        status: item.lastStatus ?? null,
+        error: item.lastError ?? null,
+        rejectedAt: item.rejectedAt,
+      })),
+    apiBaseUrl: profile.apiBaseUrl,
+    lastSync: profile.cache.lastSync,
   };
 }
 
@@ -186,11 +472,15 @@ async function buildCachedState(): Promise<CachedState> {
 async function applySolveToCache(
   payload: SolveRequest,
   res: SolveResponse,
+  targetProfileId: string,
 ): Promise<void> {
-  const cache = await readCache();
-  cache.totals = res.totals;
-  const entry = res.entry;
-  if (entry) {
+  await withState((state) => {
+    const profile = state.profiles[targetProfileId];
+    if (!profile) return;
+    const cache = profile.cache;
+    cache.totals = res.totals;
+    const entry = res.entry;
+    if (entry) {
     // Drop a client-side nc: alias when the server upgraded it to lc:.
     cache.keys = cache.keys.filter(
       (key) => key !== payload.canonicalKey || key === entry.canonicalKey,
@@ -206,8 +496,9 @@ async function applySolveToCache(
     );
     if (existingIndex >= 0) cache.solved[existingIndex] = entry;
     else cache.solved.unshift(entry);
-  }
-  await writeCache(cache);
+    }
+    profile.cache = cache;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -222,60 +513,112 @@ async function handleCheckProblem(canonicalKey: string): Promise<CheckProblemRes
     cache = await readCache();
   }
   const entry = cache.solved.find((s) => s.canonicalKey === canonicalKey) ?? null;
-  return { solved: cache.keys.includes(canonicalKey), entry };
+  const profile = activeProfile(await readState());
+  return { solved: cache.keys.includes(canonicalKey), entry, authState: profile.authState };
 }
 
 async function handleMarkSolved(payload: SolveRequest): Promise<MarkSolvedResult> {
+  const initial = await readState();
+  const targetProfileId = initial.activeProfileId;
+  const targetProfile = initial.profiles[targetProfileId];
   try {
-    const res = await apiPost<SolveResponse>('/api/solve', payload);
-    apiOk = true;
-    await applySolveToCache(payload, res);
+    if (!targetProfile) throw new MissingApiKeyError();
+    const res = await apiPostForProfile<SolveResponse>(targetProfile, '/api/solve', payload);
+    await setProfileAuthState(targetProfileId, 'ok');
+    await applySolveToCache(payload, res, targetProfileId);
     // Opportunistically drain any older queued writes (don't block the caller).
-    void flushPending().catch(() => {
-      apiOk = false;
-    });
-    return res;
-  } catch {
-    apiOk = false;
-    await enqueuePending(payload);
-    const cache = await readCache();
+    void flushPending(targetProfileId);
+    return { ...res, authState: 'ok' };
+  } catch (error) {
+    const failure = queueFailure(error);
+    if (failure.status === 400 || failure.status === 422) {
+      await withState((state) => {
+        const profile = state.profiles[targetProfileId];
+        if (!profile) return;
+        profile.deadLetters.push({
+          id: queuedSolveId(),
+          payload,
+          queuedAt: Date.now(),
+          attempts: 1,
+          ...(failure.status === undefined ? {} : { lastStatus: failure.status }),
+          ...(failure.message ? { lastError: failure.message } : {}),
+          rejectedAt: Date.now(),
+        });
+      });
+    } else {
+      await enqueuePending(payload, error, targetProfileId);
+    }
+    await setProfileAuthState(targetProfileId,
+      failure.status === 400 || failure.status === 422
+        ? 'ok'
+        : error instanceof MissingApiKeyError
+          ? 'missing-key'
+          : failure.status === 401 || failure.status === 403
+            ? 'invalid-key'
+            : 'api-error',
+    );
+    const profile = (await readState()).profiles[targetProfileId];
+    const cache = profile?.cache ?? EMPTY_CACHE;
     const entry = cache.solved.find((s) => s.canonicalKey === payload.canonicalKey) ?? null;
     return {
       isNew: !cache.keys.includes(payload.canonicalKey),
       entry,
       alreadySolved: entry,
       totals: cache.totals,
-      queued: true,
+      queued: failure.status !== 400 && failure.status !== 422,
+      rejected: failure.status === 400 || failure.status === 422,
+      authState: profile?.authState ?? 'missing-key',
     };
   }
 }
 
 async function handleResolve(slug?: string, title?: string): Promise<ResolveResponse> {
   const cacheKey = `s:${slug ?? ''}|t:${title ?? ''}`;
-  const cached = resolveCache.get(cacheKey);
+  const initial = await readState();
+  const targetProfileId = initial.activeProfileId;
+  const profile = initial.profiles[targetProfileId];
+  if (!profile) return { problem: null, unavailable: true };
+  const cached = profile.resolveCache[cacheKey];
   if (cached) return cached;
   try {
     const params = new URLSearchParams();
     if (slug) params.set('slug', slug);
     if (title) params.set('title', title);
-    const res = await apiGet<ResolveResponse>(`/api/resolve?${params.toString()}`);
-    apiOk = true;
-    resolveCache.set(cacheKey, res);
+    const res = await apiGetForProfile<ResolveResponse>(profile, `/api/resolve?${params.toString()}`);
+    await withState((state) => {
+      const current = state.profiles[targetProfileId];
+      if (!current) return;
+      current.authState = 'ok';
+      current.resolveCache[cacheKey] = res;
+    });
     return res;
-  } catch {
-    apiOk = false;
-    return { problem: null };
+  } catch (error) {
+    await setProfileAuthState(
+      targetProfileId,
+      error instanceof MissingApiKeyError
+        ? 'missing-key'
+        : error instanceof HttpError && (error.status === 401 || error.status === 403)
+          ? 'invalid-key'
+          : 'api-error',
+    );
+    return { problem: null, unavailable: true };
   }
 }
 
 async function handleBackfillSlugs(slugs: string[]): Promise<BackfillResponse> {
   try {
     const res = await apiPost<BackfillResponse>('/api/backfill', { slugs });
-    apiOk = true;
+    await setAuthState('ok');
     await syncCache();
     return res;
-  } catch {
-    apiOk = false;
+  } catch (error) {
+    await setAuthState(
+      error instanceof MissingApiKeyError
+        ? 'missing-key'
+        : error instanceof HttpError && (error.status === 401 || error.status === 403)
+          ? 'invalid-key'
+          : 'api-error',
+    );
     const cache = await readCache();
     return { imported: 0, skipped: slugs.length, totals: cache.totals };
   }
@@ -283,14 +626,19 @@ async function handleBackfillSlugs(slugs: string[]): Promise<BackfillResponse> {
 
 async function handleGetStats(): Promise<StatsResult> {
   await syncCache();
-  const cache = await buildCachedState();
   try {
     const stats = await apiGet<StatsResponse>('/api/stats');
-    apiOk = true;
-    return { ok: true, stats, cache };
-  } catch {
-    apiOk = false;
-    return { ok: false, stats: null, cache };
+    await setAuthState('ok');
+    return { ok: true, stats, cache: await buildCachedState() };
+  } catch (error) {
+    await setAuthState(
+      error instanceof MissingApiKeyError
+        ? 'missing-key'
+        : error instanceof HttpError && (error.status === 401 || error.status === 403)
+          ? 'invalid-key'
+          : 'api-error',
+    );
+    return { ok: false, stats: null, cache: await buildCachedState() };
   }
 }
 
@@ -307,6 +655,94 @@ async function handleGetActiveProblem(): Promise<ActiveProblemResult> {
     return { payload, ...status };
   } catch {
     return { payload: null, solved: false, entry: null };
+  }
+}
+
+async function activateProfile(base: string, key: string | null, clearAnonymousCache = false): Promise<CachedState> {
+  const normalizedBase = normalizeBase(base);
+  const id = await profileId(normalizedBase, key);
+  await withState((state) => {
+    let profile = state.profiles[id];
+    if (!profile) {
+      profile = createProfile(normalizedBase, key);
+      state.profiles[id] = profile;
+    }
+    if (clearAnonymousCache && !key) {
+      profile.cache = { ...EMPTY_CACHE, totals: { ...EMPTY_TOTALS } };
+      profile.resolveCache = {};
+      profile.authState = 'missing-key';
+    }
+    // A v1 queue was not bound to an identity. Preserve it by explicitly
+    // adopting it into the first account that is configured after upgrade.
+    if (key && state.legacyPending.length) {
+      for (const legacy of state.legacyPending) {
+        profile.pending = profile.pending.filter(
+          (queued) => queued.payload.canonicalKey !== legacy.payload.canonicalKey,
+        );
+        profile.pending.push(legacy);
+      }
+      state.legacyPending = [];
+    }
+    state.activeProfileId = id;
+  });
+  return buildCachedState();
+}
+
+async function notifyIdentityChanged(): Promise<void> {
+  const tabs = await chrome.tabs.query({
+    url: [
+      '*://leetcode.com/*',
+      '*://neetcode.io/*',
+      '*://takeuforward.org/*',
+      '*://*.geeksforgeeks.org/*',
+      '*://geeksforgeeks.org/*',
+    ],
+  });
+  await Promise.all(
+    tabs
+      .filter((tab): tab is chrome.tabs.Tab & { id: number } => tab.id !== undefined)
+      .map((tab) =>
+        chrome.tabs
+          .sendMessage(tab.id, { type: 'AUTH_PROFILE_CHANGED' } satisfies ExtMessage)
+          .catch(() => undefined),
+      ),
+  );
+}
+
+async function handleSetApiBase(baseUrl: string): Promise<CachedState> {
+  const current = activeProfile(await readState());
+  const next = await activateProfile(baseUrl, current.apiKey);
+  // A base/key profile has its own cache and queue. Sync is intentionally
+  // after the switch so a failed request cannot contaminate the old identity.
+  await notifyIdentityChanged();
+  return next.hasApiKey ? syncCache() : next;
+}
+
+async function handleSetApiKey(key: string): Promise<CachedState> {
+  const current = activeProfile(await readState());
+  const trimmed = key.trim();
+  if (!trimmed) return handleClearApiKey();
+  const next = await activateProfile(current.apiBaseUrl, trimmed);
+  await notifyIdentityChanged();
+  return syncCache().catch(() => next);
+}
+
+async function handleClearApiKey(): Promise<CachedState> {
+  const current = activeProfile(await readState());
+  const state = await activateProfile(current.apiBaseUrl, null, true);
+  await notifyIdentityChanged();
+  return state;
+}
+
+async function handleOpenPopup(): Promise<void> {
+  try {
+    await chrome.action.openPopup();
+    return;
+  } catch {
+    // Older Chromium may reject openPopup from a content-script click. The
+    // settings page is a useful, authenticated fallback where keys are made.
+    const base = await getApiBase();
+    await chrome.tabs.create({ url: `${base}/settings` });
   }
 }
 
@@ -417,7 +853,7 @@ async function handleRunBackfill(): Promise<BackfillRunResult> {
     if (result.error) return { ok: false, cacheSynced: false, error: result.error };
     const slugs = result.slugs ?? [];
     const res = await apiPost<BackfillResponse>('/api/backfill', { slugs });
-    apiOk = true;
+    await setAuthState('ok');
     const cache = await syncCache();
     const cacheSynced = cache.apiOk;
     return {
@@ -432,7 +868,13 @@ async function handleRunBackfill(): Promise<BackfillRunResult> {
       collected: slugs.length,
     };
   } catch (e) {
-    apiOk = false;
+    await setAuthState(
+      e instanceof MissingApiKeyError
+        ? 'missing-key'
+        : e instanceof HttpError && (e.status === 401 || e.status === 403)
+          ? 'invalid-key'
+          : 'api-error',
+    );
     return {
       ok: false,
       cacheSynced: false,
@@ -628,7 +1070,7 @@ async function handleRunNcImport(): Promise<BackfillRunResult> {
     if (result.error) return { ok: false, cacheSynced: false, error: result.error };
     const ids = result.slugs ?? [];
     const res = await apiPost<ImportResponse>('/api/import', { ids } satisfies ImportRequest);
-    apiOk = true;
+    await setAuthState('ok');
     const cache = await syncCache();
     const cacheSynced = cache.apiOk;
     return {
@@ -643,7 +1085,13 @@ async function handleRunNcImport(): Promise<BackfillRunResult> {
       collected: ids.length,
     };
   } catch (e) {
-    apiOk = false;
+    await setAuthState(
+      e instanceof MissingApiKeyError
+        ? 'missing-key'
+        : e instanceof HttpError && (e.status === 401 || e.status === 403)
+          ? 'invalid-key'
+          : 'api-error',
+    );
     return {
       ok: false,
       cacheSynced: false,
@@ -675,10 +1123,13 @@ function route(msg: ExtMessage): Promise<unknown> | undefined {
     case 'GET_ACTIVE_PROBLEM':
       return handleGetActiveProblem();
     case 'SET_API_BASE':
-      resolveCache.clear();
-      return chrome.storage.local
-        .set({ [K_API_BASE]: msg.baseUrl.replace(/\/+$/, '') })
-        .then(() => syncCache());
+      return handleSetApiBase(msg.baseUrl);
+    case 'SET_API_KEY':
+      return handleSetApiKey(msg.key);
+    case 'CLEAR_API_KEY':
+      return handleClearApiKey();
+    case 'OPEN_POPUP':
+      return handleOpenPopup();
     case 'RUN_BACKFILL':
       return handleRunBackfill();
     case 'RUN_NC_IMPORT':
@@ -727,6 +1178,9 @@ export default defineBackground(() => {
         { hostEquals: 'leetcode.com' },
         { hostEquals: 'neetcode.io' },
         { hostEquals: 'takeuforward.org' },
+        { hostEquals: 'geeksforgeeks.org' },
+        { hostEquals: 'www.geeksforgeeks.org' },
+        { hostEquals: 'practice.geeksforgeeks.org' },
       ],
     },
   );

@@ -3,6 +3,8 @@ import { and, eq, inArray, isNotNull } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 import { db, problems, solvedProblems, solveEvents } from '@/db';
 import { getTotals } from '@/lib/queries';
+import { requireApiUser, unauthorizedApiResponse } from '@/lib/auth';
+import { apiErrorResponse } from '@/lib/api-error';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -11,13 +13,13 @@ export async function POST(request: NextRequest) {
   try {
     return await handle(request);
   } catch (e) {
-    const message = e instanceof Error ? e.message : 'backfill failed';
-    console.error('[api/backfill]', e);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return apiErrorResponse('/api/backfill', e);
   }
 }
 
 async function handle(request: NextRequest) {
+  const userId = await requireApiUser(request);
+  if (!userId) return unauthorizedApiResponse();
   const body = (await request.json()) as BackfillRequest;
   if (!Array.isArray(body?.slugs)) {
     return NextResponse.json({ error: 'slugs array required' }, { status: 400 });
@@ -37,6 +39,7 @@ async function handle(request: NextRequest) {
     const values = chunk.map((slug) => {
       const p = knownBySlug.get(slug);
       return {
+        userId,
         canonicalKey: `lc:${slug}`,
         lcSlug: p ? slug : null,
         title: p ? `${p.lcNumber}. ${p.title}` : slug,
@@ -48,13 +51,14 @@ async function handle(request: NextRequest) {
     const inserted = await db
       .insert(solvedProblems)
       .values(values)
-      .onConflictDoNothing()
+      .onConflictDoNothing({ target: [solvedProblems.userId, solvedProblems.canonicalKey] })
       .returning({ key: solvedProblems.canonicalKey });
     imported += inserted.length;
 
     if (inserted.length > 0) {
       await db.insert(solveEvents).values(
         inserted.map((row) => ({
+          userId,
           canonicalKey: row.key,
           source: 'backfill',
           url: `https://leetcode.com/problems/${row.key.slice(3)}/`,
@@ -74,6 +78,7 @@ async function handle(request: NextRequest) {
       .from(solveEvents)
       .where(
         and(
+          eq(solveEvents.userId, userId),
           inArray(solveEvents.canonicalKey, keys.slice(i, i + CHUNK)),
           isNotNull(solveEvents.url),
           eq(solveEvents.source, 'backfill'),
@@ -85,6 +90,7 @@ async function handle(request: NextRequest) {
   for (let i = 0; i < missingLinks.length; i += CHUNK) {
     await db.insert(solveEvents).values(
       missingLinks.slice(i, i + CHUNK).map((key) => ({
+        userId,
         canonicalKey: key,
         source: 'backfill',
         url: `https://leetcode.com/problems/${key.slice(3)}/`,
@@ -93,11 +99,11 @@ async function handle(request: NextRequest) {
     );
   }
 
-  const totals = await getTotals();
+  const totals = await getTotals(userId);
   const res: BackfillResponse = {
     imported,
     skipped: slugs.length - imported,
     totals,
   };
-  return NextResponse.json(res);
+  return NextResponse.json(res, { headers: { 'Cache-Control': 'no-store', Vary: 'Authorization' } });
 }

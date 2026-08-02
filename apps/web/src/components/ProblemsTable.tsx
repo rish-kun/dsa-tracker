@@ -10,7 +10,7 @@ import { formatDate, lcUrl, parseTitle, sourceLabel } from '@/lib/format';
 type SortKey = 'date' | 'number';
 
 const DIFFICULTIES: Difficulty[] = ['Easy', 'Medium', 'Hard'];
-const SOURCES = ['leetcode', 'neetcode', 'tuf', 'backfill'];
+const SOURCES = ['leetcode', 'neetcode', 'tuf', 'gfg', 'backfill'];
 
 export function ProblemsTable({ rows }: { rows: SolvedProblem[] }) {
   const [query, setQuery] = useState('');

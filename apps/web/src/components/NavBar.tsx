@@ -1,14 +1,15 @@
 'use client';
 
 import Link from 'next/link';
+import { UserButton } from '@clerk/nextjs';
 import { usePathname } from 'next/navigation';
 import { useTheme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 
 const LINKS = [
-  { href: '/plan', label: 'Plan' },
   { href: '/', label: 'Dashboard' },
   { href: '/problems', label: 'Problems' },
+  { href: '/settings', label: 'Settings' },
 ];
 
 function SunIcon() {
@@ -48,7 +49,7 @@ function MoonIcon() {
   );
 }
 
-export function NavBar() {
+export function NavBar({ canUsePlan }: { canUsePlan: boolean }) {
   const pathname = usePathname();
   const { theme, toggle } = useTheme();
 
@@ -69,7 +70,7 @@ export function NavBar() {
 
         <div className="flex min-w-0 items-center gap-1 sm:gap-2">
           <nav className="flex gap-0 sm:gap-1" aria-label="Primary">
-            {LINKS.map((link) => {
+            {(canUsePlan ? [{ href: '/plan', label: 'Plan' }, ...LINKS] : LINKS).map((link) => {
               // `/` must match exactly — every path starts with it, so prefix
               // matching would light up Dashboard on `/plan` and `/problems` too.
               const active = link.href === '/' ? pathname === '/' : pathname.startsWith(link.href);
@@ -109,6 +110,7 @@ export function NavBar() {
           >
             {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
           </button>
+          <UserButton afterSignOutUrl="/sign-in" />
         </div>
       </div>
     </header>

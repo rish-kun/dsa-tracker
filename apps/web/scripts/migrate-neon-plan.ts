@@ -568,16 +568,16 @@ function chunk<T>(items: T[], size: number): T[][] {
   return out;
 }
 
-async function commit(r: Rewrite): Promise<void> {
+async function commit(userId: string, r: Rewrite): Promise<void> {
   const updatedAt = new Date();
 
   if (r.resolved.length > 0) {
     for (const batch of chunk(r.resolved, UPSERT_CHUNK)) {
       await db
         .insert(planChecks)
-        .values(batch.map((x) => ({ checkId: x.newId, done: x.done, updatedAt })))
+        .values(batch.map((x) => ({ userId, checkId: x.newId, done: x.done, updatedAt })))
         .onConflictDoUpdate({
-          target: planChecks.checkId,
+          target: [planChecks.userId, planChecks.checkId],
           set: { done: sql`excluded.done`, updatedAt: sql`excluded.updated_at` },
         });
     }
@@ -588,9 +588,9 @@ async function commit(r: Rewrite): Promise<void> {
     for (const batch of chunk(r.dayRows, UPSERT_CHUNK)) {
       await db
         .insert(planDays)
-        .values(batch)
+        .values(batch.map((row) => ({ userId, ...row })))
         .onConflictDoUpdate({
-          target: planDays.date,
+          target: [planDays.userId, planDays.date],
           set: {
             log: sql`excluded.log`,
             floorDsa: sql`excluded.floor_dsa`,
@@ -605,9 +605,9 @@ async function commit(r: Rewrite): Promise<void> {
 
   await db
     .insert(planCounters)
-    .values(r.counters)
+    .values({ userId, ...r.counters })
     .onConflictDoUpdate({
-      target: planCounters.id,
+      target: [planCounters.userId, planCounters.id],
       set: {
         dsa: r.counters.dsa,
         dsaExtra: r.counters.dsaExtra,
@@ -648,6 +648,7 @@ const USAGE = `migrate-neon-plan — old tracker_state jsonb -> plan_checks / pl
 
   --from-file <path>   read the blob from a JSON file (NO database access at all)
   --commit             actually write to DSA_TRACKER_DATABASE_URL (default: dry run)
+  --user-id <id>       Clerk user ID to own the imported plan (required with --commit)
   --allow-unmapped     permit --commit even with unmapped keys (accepts data loss)
   --show-mapping       print the full old-id -> new-id mapping
   -h, --help           this message
@@ -664,6 +665,7 @@ async function main(): Promise<void> {
 
   const fromFile = flagValue(argv, '--from-file');
   const doCommit = argv.includes('--commit');
+  const userId = flagValue(argv, '--user-id');
   const allowUnmapped = argv.includes('--allow-unmapped');
   const showMapping = argv.includes('--show-mapping');
 
@@ -707,10 +709,16 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (!userId) {
+    console.error('ABORT: --user-id <Clerk user ID> is required with --commit.');
+    process.exitCode = 1;
+    return;
+  }
+
   if (fromFile) {
     console.log('Committing from file source into DSA_TRACKER_DATABASE_URL...');
   }
-  await commit(result);
+  await commit(userId, result);
   await closeTargetClient();
   console.log('Done. Re-running is safe — every statement is an upsert.');
 }

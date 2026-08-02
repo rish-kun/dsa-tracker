@@ -1,168 +1,74 @@
-import type { PageProblemMessage, SolveRequest } from '@dsa-tracker/shared';
+import type { SolveRequest } from '@dsa-tracker/shared';
 import type { ContentScriptContext } from 'wxt/utils/content-script-context';
-import { createBanner, type BannerHandle } from '../../components/Banner';
-import { sendMessage } from '../../lib/messaging';
+import { createSiteAdapterRunner, resolveCatalog } from '../../lib/site-adapter';
+
+function currentSlug(): string | null {
+  return location.pathname.match(/\/problems\/([^/?#]+)/)?.[1] ?? null;
+}
+
+function titleFromDom(): string | null {
+  // Angular leaves modal h1s mounted, so only trust its problem heading.
+  const heading = document.querySelector('.problem-title')?.textContent?.trim();
+  if (heading) return heading;
+  const fromTitle = document.title.match(/^(.+?)\s*[-|·]\s*NeetCode(?:\s.*)?$/i)?.[1]?.trim();
+  return fromTitle && !/^neetcode\b/i.test(fromTitle) ? fromTitle : null;
+}
+
+async function waitForTitle(ctx: ContentScriptContext, timeoutMs = 10_000): Promise<string | null> {
+  const deadline = Date.now() + timeoutMs;
+  while (ctx.isValid && Date.now() < deadline) {
+    const title = titleFromDom();
+    if (title) return title;
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
+  return null;
+}
 
 export default defineContentScript({
-  // Register on the whole site so this script already exists when NeetCode's
-  // SPA moves from /practice/* to /problems/* without loading a new document.
+  // Register across the site so navigating from /practice to /problems does
+  // not require a document reload before the adapter can respond.
   matches: ['*://neetcode.io/*'],
   runAt: 'document_idle',
   async main(ctx: ContentScriptContext) {
-    let banner: BannerHandle | null = null;
-    let checkRun = 0; // invalidates in-flight checks on route change
-
-    // NeetCode editor slugs are NOT LeetCode titleSlugs (`duplicate-integer`
-    // is LC's `contains-duplicate`), so identity comes from the displayed
-    // problem title, resolved against the catalog. The URL slug is only a
-    // fallback namespace (`nc:`) for NeetCode-only problems.
-    function currentSlug(): string | null {
-      const m = location.pathname.match(/\/problems\/([^/?#]+)/);
-      return m?.[1] ?? null;
-    }
-
-    function titleFromDom(): string | null {
-      // NeetCode keeps many modal headings in the DOM as h1 elements (for
-      // example "Editor Settings"), so only trust the problem-title marker.
-      const heading = document.querySelector('.problem-title');
-      const t = heading?.textContent?.trim();
-      if (t) return t;
-      // Only accept the problem-title form ("Contains Duplicate - NeetCode").
-      // The generic Angular shell title starts with "NeetCode | ..." and must
-      // not end the wait before the problem data renders.
-      const doc = document.title.match(/^(.+?)\s*[-|·]\s*NeetCode(?:\s.*)?$/i)?.[1]?.trim();
-      if (doc && !/^neetcode\b/i.test(doc)) return doc;
-      return null;
-    }
-
-    async function buildSolveRequest(
-      slug: string,
-      title: string | null,
-    ): Promise<SolveRequest> {
-      let resolved = await sendMessage({ type: 'RESOLVE', slug });
-      if (!resolved?.problem && title) {
-        resolved = await sendMessage({ type: 'RESOLVE', title });
-      }
-      const problem = resolved?.problem ?? null;
-      const displayTitle = problem?.title ?? title ?? slug.replace(/-/g, ' ');
-      return {
-        canonicalKey: problem ? `lc:${problem.lcSlug}` : `nc:${slug}`,
-        lcSlug: problem?.lcSlug,
-        title: displayTitle,
-        source: 'neetcode',
-        url: location.href,
-        detected: 'manual',
-      };
-    }
-
-    /** The page is an Angular SPA — the h1 can render well after idle. */
-    async function waitForTitle(run: number, timeoutMs = 10_000): Promise<string | null> {
-      const deadline = Date.now() + timeoutMs;
-      while (Date.now() < deadline && ctx.isValid && run === checkRun) {
-        const t = titleFromDom();
-        if (t) return t;
-        await new Promise((r) => setTimeout(r, 300));
-      }
-      return null;
-    }
-
-    async function removeBanner() {
-      banner?.remove();
-      banner = null;
-    }
-
-    async function ensureBanner(): Promise<BannerHandle> {
-      if (!banner) banner = await createBanner(ctx, { state: { kind: 'queued' } });
-      return banner;
-    }
-
-    async function check() {
-      const run = ++checkRun;
-      const slug = currentSlug();
-      if (!slug) return removeBanner();
-
-      const title = await waitForTitle(run);
-      if (run !== checkRun) return;
-
-      const payload = await buildSolveRequest(slug, title);
-      if (run !== checkRun) return;
-
-      const key = payload.canonicalKey;
-      const displayTitle = payload.title;
-
-      const res = await sendMessage({ type: 'CHECK_PROBLEM', canonicalKey: key });
-      if (run !== checkRun || !res) return;
-      const b = await ensureBanner();
-
-      if (res.solved && res.entry) {
-        b.update({
-          state: {
-            kind: 'already-solved',
-            title: res.entry.title || displayTitle,
-            source: res.entry.firstSource,
-            date: res.entry.firstSolvedAt,
-          },
-          onClose: () => removeBanner(),
-        });
-        return;
-      }
-
-      const mark = async () => {
-        b.update({ state: { kind: 'prompt', title: displayTitle, busy: true } });
-        const r = await sendMessage({ type: 'MARK_SOLVED', payload });
-        if (r.queued) {
-          b.update({ state: { kind: 'queued' }, onClose: () => removeBanner() });
-        } else {
-          b.update({
-            state: {
-              kind: 'recorded',
-              isNew: r.isNew,
-              total: r.totals.lcUnique,
-              label: 'Unique total',
-            },
-            onClose: () => removeBanner(),
-          });
-          ctx.setTimeout(() => removeBanner(), 5000);
-        }
-      };
-
-      b.update({
-        state: { kind: 'prompt', title: displayTitle },
-        onMark: () => void mark(),
-        onClose: () => removeBanner(),
-      });
-    }
-
-    let debounce: ReturnType<typeof setTimeout> | undefined;
-    function scheduleCheck() {
-      if (debounce) clearTimeout(debounce);
-      debounce = setTimeout(() => void check(), 300);
-    }
-
-    // Angular SPA: react to history changes (via background) and popstate.
-    chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-      if ((msg as PageProblemMessage)?.type === 'GET_PAGE_PROBLEM') {
+    const runner = createSiteAdapterRunner(ctx, {
+      mode: 'manual',
+      isProblemPage: () => currentSlug() !== null,
+      totalFor(payload, totals) {
+        return payload.canonicalKey.startsWith('lc:')
+          ? { label: 'Unique total', total: totals.lcUnique }
+          : { label: 'Other total', total: totals.other };
+      },
+      async detect(): Promise<SolveRequest | null> {
         const slug = currentSlug();
-        if (!slug) {
-          sendResponse(null);
-          return false;
+        if (!slug) return null;
+
+        const title = (await waitForTitle(ctx)) ?? titleFromDom();
+        const bySlug = await resolveCatalog({ slug });
+        // NeetCode slugs are not reliably LeetCode slugs, so title is the
+        // second, authoritative lookup path (e.g. duplicate-integer).
+        const resolved = bySlug.kind === 'match' || !title ? bySlug : await resolveCatalog({ title });
+        if (resolved.kind === 'unavailable') return null;
+        if (resolved.kind === 'match') {
+          return {
+            canonicalKey: `lc:${resolved.lcSlug}`,
+            lcSlug: resolved.lcSlug,
+            title: resolved.title,
+            source: 'neetcode',
+            url: location.href,
+            detected: 'manual',
+          };
         }
-        void buildSolveRequest(slug, titleFromDom()).then(sendResponse).catch(() =>
-          sendResponse(null),
-        );
-        return true;
-      }
-      if (msg?.type === 'ROUTE_CHANGED') {
-        void removeBanner();
-        scheduleCheck();
-      }
-      return false;
-    });
-    window.addEventListener('popstate', () => {
-      void removeBanner();
-      scheduleCheck();
+        return {
+          canonicalKey: `nc:${slug}`,
+          title: title ?? slug.replace(/-/g, ' '),
+          source: 'neetcode',
+          url: location.href,
+          detected: 'manual',
+        };
+      },
     });
 
-    scheduleCheck();
+    runner.registerMessages();
+    runner.scheduleCheck();
   },
 });

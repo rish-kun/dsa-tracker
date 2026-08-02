@@ -1,5 +1,6 @@
 import type {
   ActiveProblemResult,
+  AuthState,
   BackfillResponse,
   BackfillRunResult,
   CachedState,
@@ -14,6 +15,11 @@ import type {
  * the API was unreachable and the write was queued locally for later retry. */
 export interface MarkSolvedResult extends SolveResponse {
   queued?: boolean;
+  /** The server permanently rejected this write (400/422); details are in the
+   * active profile's popup dead-letter count. */
+  rejected?: boolean;
+  /** Current credential/reachability state, including after a queued write. */
+  authState: AuthState;
 }
 
 /** Maps each message type to the shape the service worker responds with. */
@@ -28,6 +34,10 @@ interface ResponseMap {
   REFRESH_CACHE: CachedState;
   GET_ACTIVE_PROBLEM: ActiveProblemResult;
   SET_API_BASE: CachedState;
+  SET_API_KEY: CachedState;
+  CLEAR_API_KEY: CachedState;
+  OPEN_POPUP: void;
+  AUTH_PROFILE_CHANGED: void;
   RUN_BACKFILL: BackfillRunResult;
   RUN_NC_IMPORT: BackfillRunResult;
 }

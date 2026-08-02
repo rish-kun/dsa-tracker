@@ -21,7 +21,9 @@ export function App() {
   const [data, setData] = useState<StatsResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [apiBase, setApiBase] = useState('');
+  const [apiKey, setApiKey] = useState('');
   const [savingBase, setSavingBase] = useState(false);
+  const [savingKey, setSavingKey] = useState(false);
   const [backfillMsg, setBackfillMsg] = useState<string | null>(null);
   const [backfilling, setBackfilling] = useState(false);
   const [activeProblem, setActiveProblem] = useState<ActiveProblemResult | null>(null);
@@ -61,6 +63,29 @@ export function App() {
     } finally {
       // Must clear on rejection too, or Save stays disabled forever.
       setSavingBase(false);
+    }
+    await load();
+  }
+
+  async function saveApiKey() {
+    setSavingKey(true);
+    try {
+      await sendMessage({ type: 'SET_API_KEY', key: apiKey });
+      // The storage layer retains the key but the popup must never re-render it.
+      setApiKey('');
+    } finally {
+      setSavingKey(false);
+    }
+    await load();
+  }
+
+  async function clearApiKey() {
+    setSavingKey(true);
+    try {
+      await sendMessage({ type: 'CLEAR_API_KEY' });
+      setApiKey('');
+    } finally {
+      setSavingKey(false);
     }
     await load();
   }
@@ -111,6 +136,11 @@ export function App() {
   const recent: SolvedProblem[] = (data?.stats?.recent ?? data?.cache.solved ?? []).slice(0, 5);
   const apiDown = data ? !data.ok : false;
   const pending = data?.cache.pending ?? 0;
+  const rejected = data?.cache.rejected ?? 0;
+  const rejectedItems = data?.cache.rejectedItems ?? [];
+  const authState = data?.cache.authState;
+  const keyConfigured = data?.cache.hasApiKey ?? false;
+  const canUseApi = authState === 'ok';
 
   return (
     <div className="app">
@@ -121,10 +151,37 @@ export function App() {
         </button>
       </header>
 
-      {apiDown && (
+      {authState === 'missing-key' && (
+        <div className="warn">
+          Add an extension API key to connect your tracker.
+          {pending > 0 ? ` ${pending} write(s) are safely waiting.` : ''}
+        </div>
+      )}
+      {authState === 'invalid-key' && (
+        <div className="warn">
+          This extension key was rejected or revoked. Replace it to resume sync.
+          {pending > 0 ? ` ${pending} write(s) are safely waiting.` : ''}
+        </div>
+      )}
+      {authState === 'api-error' && (
         <div className="warn">
           Backend unreachable — showing cached data.
           {pending > 0 ? ` ${pending} write(s) queued.` : ''}
+        </div>
+      )}
+      {rejected > 0 && (
+        <div className="warn rejected">
+          {rejected} write{rejected === 1 ? '' : 's'} rejected by the server and kept out of
+          the sync queue. Check your tracker version or problem details.
+          <ul className="dead-letter-list" aria-label="Rejected writes">
+            {rejectedItems.map((item) => (
+              <li key={`${item.rejectedAt}:${item.canonicalKey}`}>
+                <strong>{item.title}</strong>
+                <span>{item.status ? `HTTP ${item.status}` : 'Request failed'} · {item.canonicalKey}</span>
+                {item.error && <span title={item.error}>{item.error}</span>}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
@@ -152,9 +209,13 @@ export function App() {
               type="button"
               className="primary-btn current-btn"
               onClick={() => void markCurrentProblem()}
-              disabled={markingCurrent}
+              disabled={markingCurrent || authState === 'missing-key' || authState === 'invalid-key'}
             >
-              {markingCurrent ? 'Saving…' : 'Mark current problem complete'}
+              {markingCurrent
+                ? 'Saving…'
+                : authState === 'missing-key' || authState === 'invalid-key'
+                  ? 'Connect an API key to record'
+                  : 'Mark current problem complete'}
             </button>
           )}
           {currentMsg && <div className="note">{currentMsg}</div>}
@@ -182,7 +243,7 @@ export function App() {
           type="button"
           className="primary-btn"
           onClick={() => void runSync('RUN_BACKFILL')}
-          disabled={backfilling}
+          disabled={backfilling || !canUseApi}
         >
           {backfilling ? 'Syncing…' : 'Sync from LeetCode'}
         </button>
@@ -190,7 +251,7 @@ export function App() {
           type="button"
           className="primary-btn secondary"
           onClick={() => void runSync('RUN_NC_IMPORT')}
-          disabled={backfilling}
+          disabled={backfilling || !canUseApi}
         >
           {backfilling ? 'Syncing…' : 'Sync from NeetCode'}
         </button>
@@ -217,6 +278,38 @@ export function App() {
         <button type="button" className="link" onClick={openDashboard}>
           Open dashboard →
         </button>
+      </section>
+
+      <section className="block key-block">
+        <label className="block-title" htmlFor="api-key">
+          Extension API key
+        </label>
+        <div className="row">
+          <input
+            id="api-key"
+            className="input"
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder={keyConfigured ? 'Key configured — paste to replace' : 'Paste key from Settings'}
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => void saveApiKey()}
+            disabled={savingKey || !apiKey.trim()}
+          >
+            {savingKey ? '…' : keyConfigured ? 'Replace' : 'Connect'}
+          </button>
+        </div>
+        {keyConfigured && (
+          <button type="button" className="link danger-link" onClick={() => void clearApiKey()} disabled={savingKey}>
+            Disconnect key
+          </button>
+        )}
+        <div className="note">Create or revoke keys in your tracker’s Settings page.</div>
       </section>
     </div>
   );

@@ -7,12 +7,14 @@
     "build": "next build",
     "start": "next start",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "auth:backfill": "tsx scripts/backfill-user-ownership.ts",
     "db:seed": "tsx scripts/seed-catalog.ts",
     "plan:keys": "tsx scripts/resolve-plan-keys.ts",
     "plan:migrate": "tsx scripts/migrate-neon-plan.ts"
   },
   "dependencies": {
+    "@clerk/nextjs": "^6.38.2",
     "@dsa-tracker/plan-data": "workspace:*",
     "@dsa-tracker/shared": "workspace:*",
     "clsx": "^2.1.1",

@@ -7,11 +7,14 @@ export type BannerState =
   | { kind: 'already-solved'; title: string; source: string; date: string }
   | { kind: 'prompt'; title: string; busy?: boolean }
   | { kind: 'recorded'; isNew: boolean; total: number; label: string }
-  | { kind: 'queued' };
+  | { kind: 'queued' }
+  | { kind: 'rejected'; message: string }
+  | { kind: 'needs-auth'; message: string };
 
 export interface BannerView {
   state: BannerState;
   onMark?: () => void;
+  onConnect?: () => void;
   onClose?: () => void;
 }
 
@@ -24,6 +27,7 @@ const SOURCE_LABELS: Record<string, string> = {
   leetcode: 'LeetCode',
   neetcode: 'NeetCode',
   tuf: 'takeuforward',
+  gfg: 'GeeksforGeeks',
   backfill: 'LeetCode sync',
 };
 
@@ -93,6 +97,7 @@ const CSS = `
   --pt-src-leetcode:#2a78d6;
   --pt-src-neetcode:#008300;
   --pt-src-tuf:#c13a6b;
+  --pt-src-gfg:#087a7d;
   --pt-src-backfill:#a86e00;
   --pt-src-other:#79776f;
   --pt-diff-easy:#0b7a0b;
@@ -138,6 +143,7 @@ const CSS = `
     --pt-src-leetcode:#3987e5;
     --pt-src-neetcode:#008300;
     --pt-src-tuf:#d55181;
+    --pt-src-gfg:#22a6a8;
     --pt-src-backfill:#c98500;
     --pt-src-other:#898781;
     --pt-diff-easy:#0ca30c;
@@ -155,6 +161,8 @@ const CSS = `
 .dsa-dot.green{background:var(--pt-green);box-shadow:0 0 0 4px var(--pt-green-bg);}
 .dsa-dot.blue{background:var(--pt-blue);box-shadow:0 0 0 4px var(--pt-blue-bg);}
 .dsa-dot.amber{background:var(--pt-amber);box-shadow:0 0 0 4px var(--pt-amber-bg);}
+.dsa-dot.rose{background:var(--pt-rose);box-shadow:0 0 0 4px var(--pt-rose-bg);}
+.dsa-dot.violet{background:var(--pt-violet);box-shadow:0 0 0 4px var(--pt-violet-bg);}
 .dsa-head{font-weight:600;font-size:14px;letter-spacing:-0.01em;padding-right:16px;color:var(--pt-text);}
 .dsa-sub{color:var(--pt-text-2);margin-top:6px;font-size:12.5px;}
 .dsa-title{color:var(--pt-text);font-weight:600;}
@@ -169,6 +177,7 @@ const CSS = `
 .dsa-src-leetcode{color:var(--pt-src-leetcode);}
 .dsa-src-neetcode{color:var(--pt-src-neetcode);}
 .dsa-src-tuf{color:var(--pt-src-tuf);}
+.dsa-src-gfg{color:var(--pt-src-gfg);}
 .dsa-src-backfill{color:var(--pt-src-backfill);}
 .dsa-big{font-family:var(--pt-font-mono);font-variant-numeric:tabular-nums;
   font-size:20px;font-weight:600;letter-spacing:-0.02em;color:var(--pt-text);}
@@ -183,7 +192,14 @@ const CSS = `
 `;
 
 function Card({ view }: { view: BannerView }) {
-  const { state, onMark, onClose } = view;
+  const { state, onMark, onConnect, onClose } = view;
+  const connect = () => {
+    if (onConnect) {
+      onConnect();
+      return;
+    }
+    void chrome.runtime.sendMessage({ type: 'OPEN_POPUP' });
+  };
   return (
     <div className="dsa-card" role="status">
       <style>{CSS}</style>
@@ -243,6 +259,27 @@ function Card({ view }: { view: BannerView }) {
             <span className="dsa-head">Saved locally</span>
           </div>
           <div className="dsa-sub">API unreachable — will retry automatically.</div>
+        </>
+      )}
+      {state.kind === 'needs-auth' && (
+        <>
+          <div className="dsa-row">
+            <span className="dsa-dot violet" />
+            <span className="dsa-head">Connect your tracker</span>
+          </div>
+          <div className="dsa-sub">{state.message}</div>
+          <button type="button" className="dsa-btn" onClick={connect}>
+            Open connection settings
+          </button>
+        </>
+      )}
+      {state.kind === 'rejected' && (
+        <>
+          <div className="dsa-row">
+            <span className="dsa-dot rose" />
+            <span className="dsa-head">Couldn’t record this solve</span>
+          </div>
+          <div className="dsa-sub">{state.message}</div>
         </>
       )}
     </div>

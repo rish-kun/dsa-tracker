@@ -10,6 +10,8 @@ import { PlanClient } from '@/components/plan/plan-client';
 import type { PlanViewState } from '@/components/plan/types';
 import type { PlanDayState } from '@/lib/plan-state';
 import { getLiveSolveStats, getPlanState, getPlanStreak, getSolvedKeySet } from '@/lib/plan-state';
+import { requirePlanUser } from '@/lib/auth';
+import { redirect } from 'next/navigation';
 
 export const dynamic = 'force-dynamic';
 
@@ -100,6 +102,12 @@ function resolveDays(
 type SearchParams = Promise<{ d?: string }>;
 
 export default async function PlanPage({ searchParams }: { searchParams: SearchParams }) {
+  let userId: string;
+  try {
+    userId = await requirePlanUser();
+  } catch {
+    redirect('/');
+  }
   // Reading searchParams keeps the route dynamic — it already is via
   // `force-dynamic`, so nothing about the DB reads below changes.
   const sp = await searchParams;
@@ -107,10 +115,10 @@ export default async function PlanPage({ searchParams }: { searchParams: SearchP
   // Sequential, never Promise.all: the postgres.js client is deliberately
   // max: 1 and a concurrent fan-out stalls the Supabase transaction pooler.
   // Every read degrades to empty state, so this renders without a database.
-  const planState = await getPlanState();
-  const solvedKeys = await getSolvedKeySet();
-  const liveStats = await getLiveSolveStats();
-  const streak = await getPlanStreak(liveStats.solvedPerDay);
+  const planState = await getPlanState(userId);
+  const solvedKeys = await getSolvedKeySet(userId);
+  const liveStats = await getLiveSolveStats(userId);
+  const streak = await getPlanStreak(userId, liveStats.solvedPerDay);
 
   const todayKey = localDateKey();
   const manual = planState.checks;

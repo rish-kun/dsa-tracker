@@ -20,6 +20,7 @@ const SOURCE_LABEL: Record<Source, string> = {
   leetcode: 'LeetCode',
   neetcode: 'NeetCode',
   tuf: "Striver's A2Z",
+  gfg: 'GeeksforGeeks',
   backfill: 'Backfill',
 };
 

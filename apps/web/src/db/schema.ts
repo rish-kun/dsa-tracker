@@ -5,6 +5,7 @@ import {
   index,
   integer,
   jsonb,
+  primaryKey,
   pgTable,
   text,
   timestamp,
@@ -38,7 +39,8 @@ export const problems = pgTable(
 export const solvedProblems = pgTable(
   'solved_problems',
   {
-    canonicalKey: text('canonical_key').primaryKey(),
+    userId: text('user_id').notNull(),
+    canonicalKey: text('canonical_key').notNull(),
     lcSlug: text('lc_slug').references(() => problems.lcSlug),
     title: text('title').notNull(),
     difficulty: text('difficulty'),
@@ -47,7 +49,10 @@ export const solvedProblems = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [index('solved_first_solved_at_idx').on(t.firstSolvedAt)],
+  (t) => [
+    primaryKey({ columns: [t.userId, t.canonicalKey] }),
+    index('solved_user_first_solved_at_idx').on(t.userId, t.firstSolvedAt),
+  ],
 );
 
 /** Audit log: every detection/confirmation event, including repeats. */
@@ -55,6 +60,7 @@ export const solveEvents = pgTable(
   'solve_events',
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
+    userId: text('user_id').notNull(),
     canonicalKey: text('canonical_key').notNull(),
     source: text('source').notNull(),
     url: text('url'),
@@ -67,32 +73,40 @@ export const solveEvents = pgTable(
   // leading column still serves reconcileAlias' bare `canonical_key =` update.
   // A separate index on just (canonical_key) would be a redundant prefix that
   // only costs write amplification on this append-only audit table.
-  (t) => [index('solve_events_key_created_idx').on(t.canonicalKey, t.createdAt)],
+  (t) => [
+    index('solve_events_user_key_created_idx').on(t.userId, t.canonicalKey, t.createdAt),
+    index('solve_events_user_live_created_idx')
+      .on(t.userId, t.createdAt)
+      .where(sql`${t.detected} <> 'backfill'`),
+  ],
 );
 
 /** Explicit manual overrides only. Absence of a row => derive from solved_problems. */
 export const planChecks = pgTable('plan_checks', {
-  checkId: text('check_id').primaryKey(),
+  userId: text('user_id').notNull(),
+  checkId: text('check_id').notNull(),
   done: boolean('done').notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [primaryKey({ columns: [t.userId, t.checkId] })]);
 
 /** One row per calendar day of the plan (local date, not UTC). */
 export const planDays = pgTable('plan_days', {
-  date: text('date').primaryKey(),
+  userId: text('user_id').notNull(),
+  date: text('date').notNull(),
   log: text('log'),
   note: text('note'),
   floorDsa: boolean('floor_dsa').notNull().default(false),
   floorCpp: boolean('floor_cpp').notNull().default(false),
   floorLog: boolean('floor_log').notNull().default(false),
   trip: boolean('trip').notNull().default(false),
-});
+}, (t) => [primaryKey({ columns: [t.userId, t.date] })]);
 
 /** Singleton row of manual counters. id is always 'singleton'. */
 export const planCounters = pgTable('plan_counters', {
-  id: text('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  id: text('id').notNull(),
   dsa: integer('dsa').notNull().default(0),
   dsaExtra: integer('dsa_extra').notNull().default(0),
   dsaHist: jsonb('dsa_hist').$type<number[]>().notNull().default([]),
   dsaExtraHist: jsonb('dsa_extra_hist').$type<number[]>().notNull().default([]),
-});
+}, (t) => [primaryKey({ columns: [t.userId, t.id] })]);

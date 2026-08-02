@@ -41,7 +41,7 @@ type StatsRow = {
  *
  * Throws — callers that must never fail use `getDashboardStats()`.
  */
-export async function loadStats(recentLimit: number): Promise<StatsResponse> {
+export async function loadStats(userId: string, recentLimit: number): Promise<StatsResponse> {
   const rows = await db.execute<StatsRow>(sql`
     with agg as (
       select
@@ -51,15 +51,18 @@ export async function loadStats(recentLimit: number): Promise<StatsResponse> {
         count(*) filter (where difficulty = 'Medium')::int as medium,
         count(*) filter (where difficulty = 'Hard')::int as hard
       from ${solvedProblems}
+      where user_id = ${userId}
     ),
     by_source as (
       select first_source, count(*)::int as n
       from ${solvedProblems}
+      where user_id = ${userId}
       group by first_source
     ),
     over_time as (
       select to_char(first_solved_at, 'YYYY-MM-DD') as day, count(*)::int as n
       from ${solvedProblems}
+      where user_id = ${userId}
       group by 1
     ),
     recent as (
@@ -80,11 +83,13 @@ export async function loadStats(recentLimit: number): Promise<StatsResponse> {
           select ev.url
           from ${solveEvents} ev
           where ev.canonical_key = s.canonical_key
+            and ev.user_id = s.user_id
             and ev.url is not null
           order by (ev.source = s.first_source) desc, ev.created_at asc, ev.id asc
           limit 1
         ) as source_url
       from ${solvedProblems} s
+      where s.user_id = ${userId}
       order by s.first_solved_at desc
       limit ${recentLimit}
     )
@@ -136,9 +141,9 @@ export async function loadStats(recentLimit: number): Promise<StatsResponse> {
  * back to an all-zero shape so the page can always render (empty DB, or no
  * DATABASE_URL at all during local dev / build).
  */
-export async function getDashboardStats(): Promise<StatsResponse> {
+export async function getDashboardStats(userId: string): Promise<StatsResponse> {
   try {
-    return await loadStats(8);
+    return await loadStats(userId, 8);
   } catch (err) {
     console.error(
       `getDashboardStats failed, rendering empty state: ${publicErrorMessage(err)}`,
@@ -196,7 +201,7 @@ type ExtrasRow = {
  *
  * Throws — callers that must never fail use `getDashboardExtras()`.
  */
-export async function loadDashboardExtras(): Promise<DashboardExtras> {
+export async function loadDashboardExtras(userId: string): Promise<DashboardExtras> {
   const rows = await db.execute<ExtrasRow>(sql`
     with bounds as (
       select (now() at time zone 'Asia/Kolkata')::date as today
@@ -204,7 +209,7 @@ export async function loadDashboardExtras(): Promise<DashboardExtras> {
     live as (
       select (created_at at time zone 'Asia/Kolkata')::date as day_date
       from ${solveEvents}
-      where detected <> 'backfill'
+      where user_id = ${userId} and detected <> 'backfill'
     ),
     by_day as (
       select day_date, count(*)::int as n
@@ -328,9 +333,9 @@ export async function loadDashboardExtras(): Promise<DashboardExtras> {
  * Never throws — falls back to an all-zero/empty shape so `/` always renders
  * against an unreachable or empty DB, same contract as `getDashboardStats()`.
  */
-export async function getDashboardExtras(): Promise<DashboardExtras> {
+export async function getDashboardExtras(userId: string): Promise<DashboardExtras> {
   try {
-    return await loadDashboardExtras();
+    return await loadDashboardExtras(userId);
   } catch (err) {
     console.error(
       `getDashboardExtras failed, rendering empty state: ${publicErrorMessage(err)}`,

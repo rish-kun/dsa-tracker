@@ -1,8 +1,10 @@
 import type { ImportRequest, ImportResponse } from '@dsa-tracker/shared';
-import { and, inArray, isNotNull, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import { NextRequest, NextResponse } from 'next/server';
 import { db, problems, solvedProblems, solveEvents } from '@/db';
 import { getTotals, reconcileNeetcodeAlias } from '@/lib/queries';
+import { requireApiUser, unauthorizedApiResponse } from '@/lib/auth';
+import { apiErrorResponse } from '@/lib/api-error';
 
 export const dynamic = 'force-dynamic';
 
@@ -58,13 +60,13 @@ export async function POST(request: NextRequest) {
   try {
     return await handle(request);
   } catch (e) {
-    const message = e instanceof Error ? e.message : 'import failed';
-    console.error('[api/import]', e);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return apiErrorResponse('/api/import', e);
   }
 }
 
 async function handle(request: NextRequest) {
+  const userId = await requireApiUser(request);
+  if (!userId) return unauthorizedApiResponse();
   const body = (await request.json()) as ImportRequest;
   if (!Array.isArray(body?.ids)) {
     return NextResponse.json({ error: 'ids array required' }, { status: 400 });
@@ -145,10 +147,10 @@ async function handle(request: NextRequest) {
     const existingAliases = await db
       .select({ key: solvedProblems.canonicalKey })
       .from(solvedProblems)
-      .where(inArray(solvedProblems.canonicalKey, aliasKeys.slice(i, i + CHUNK)));
+      .where(and(eq(solvedProblems.userId, userId), inArray(solvedProblems.canonicalKey, aliasKeys.slice(i, i + CHUNK))));
     for (const { key } of existingAliases) {
       const target = aliasTargets.get(key);
-      if (target) await reconcileNeetcodeAlias(key, target);
+      if (target) await reconcileNeetcodeAlias(userId, key, target);
     }
   }
 
@@ -158,14 +160,15 @@ async function handle(request: NextRequest) {
     const inserted = await db
       .insert(solvedProblems)
       .values(
-        chunk.map(({ sourceUrl: _sourceUrl, ...row }) => row),
+        chunk.map(({ sourceUrl: _sourceUrl, ...row }) => ({ userId, ...row })),
       )
-      .onConflictDoNothing()
+      .onConflictDoNothing({ target: [solvedProblems.userId, solvedProblems.canonicalKey] })
       .returning({ key: solvedProblems.canonicalKey });
     imported += inserted.length;
     if (inserted.length > 0) {
       await db.insert(solveEvents).values(
         inserted.map((r) => ({
+          userId,
           canonicalKey: r.key,
           source: 'neetcode',
           url: byKey.get(r.key)?.sourceUrl ?? null,
@@ -185,6 +188,7 @@ async function handle(request: NextRequest) {
       .from(solveEvents)
       .where(
         and(
+          eq(solveEvents.userId, userId),
           inArray(solveEvents.canonicalKey, rowKeys.slice(i, i + CHUNK)),
           isNotNull(solveEvents.url),
           sql`${solveEvents.source} = 'neetcode'`,
@@ -196,6 +200,7 @@ async function handle(request: NextRequest) {
   for (let i = 0; i < missingLinks.length; i += CHUNK) {
     await db.insert(solveEvents).values(
       missingLinks.slice(i, i + CHUNK).map((row) => ({
+        userId,
         canonicalKey: row.canonicalKey,
         source: 'neetcode',
         url: row.sourceUrl,
@@ -204,12 +209,12 @@ async function handle(request: NextRequest) {
     );
   }
 
-  const totals = await getTotals();
+  const totals = await getTotals(userId);
   const res: ImportResponse = {
     imported,
     skipped: rows.length - imported,
     unmapped,
     totals,
   };
-  return NextResponse.json(res);
+  return NextResponse.json(res, { headers: { 'Cache-Control': 'no-store', Vary: 'Authorization' } });
 }

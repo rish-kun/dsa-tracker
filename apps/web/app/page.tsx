@@ -10,14 +10,16 @@ import { SourceBars } from '@/components/SourceBars';
 import { StreakPanel } from '@/components/StreakPanel';
 import { WeeklyPacePanel } from '@/components/WeeklyPacePanel';
 import { getDashboardExtras, getDashboardStats } from '@/lib/dashboard-stats';
+import { requireUser } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
 
 export default async function DashboardPage() {
+  const userId = await requireUser();
   // Sequential, not Promise.all — the postgres.js client is `max: 1` and a
   // concurrent fan-out stalls the Supabase transaction pooler.
-  const stats = await getDashboardStats();
-  const extras = await getDashboardExtras();
+  const stats = await getDashboardStats(userId);
+  const extras = await getDashboardExtras(userId);
   const isEmpty = stats.totals.lcUnique === 0 && stats.totals.other === 0;
 
   let running = 0;

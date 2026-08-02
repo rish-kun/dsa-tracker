@@ -85,6 +85,7 @@
   --pt-src-leetcode: #2a78d6;
   --pt-src-neetcode: #008300;
   --pt-src-tuf:      #c13a6b;
+  --pt-src-gfg:      #087a7d;
   --pt-src-backfill: #a86e00;
   --pt-src-other:    #79776f;
 
@@ -157,6 +158,7 @@
   --pt-src-leetcode: #3987e5;
   --pt-src-neetcode: #008300;
   --pt-src-tuf:      #d55181;
+  --pt-src-gfg:      #22a6a8;
   --pt-src-backfill: #c98500;
   --pt-src-other:    #898781;
 
@@ -490,6 +492,9 @@
   }
   .src-tuf {
     background: var(--pt-src-tuf);
+  }
+  .src-gfg {
+    background: var(--pt-src-gfg);
   }
   .src-backfill {
     background: var(--pt-src-backfill);

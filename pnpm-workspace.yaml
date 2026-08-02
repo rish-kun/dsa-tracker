@@ -2,6 +2,9 @@ packages:
   - apps/*
   - packages/*
 allowBuilds:
+  # Clerk's postinstall only writes a local telemetry-notice marker; the SDK
+  # ships prebuilt, so the application does not need to execute it.
+  '@clerk/shared': false
   esbuild: true
   sharp: true
   spawn-sync: true

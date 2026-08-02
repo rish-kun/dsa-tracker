@@ -176,6 +176,32 @@ body {
   margin-bottom: 12px;
 }
 
+.warn.rejected {
+  background: var(--pt-rose-bg);
+  border-color: color-mix(in srgb, var(--pt-rose) 45%, transparent);
+  color: var(--pt-rose);
+}
+
+.dead-letter-list {
+  margin: 7px 0 0;
+  padding: 7px 0 0 16px;
+  border-top: 1px solid color-mix(in srgb, var(--pt-rose) 25%, transparent);
+}
+
+.dead-letter-list li + li {
+  margin-top: 6px;
+}
+
+.dead-letter-list strong,
+.dead-letter-list span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.dead-letter-list span {
+  opacity: 0.85;
+}
+
 /* ── Counters ──────────────────────────────────────────────────────────── */
 
 .counts {
@@ -448,6 +474,10 @@ body {
 
 .link:hover {
   color: var(--pt-blue);
+}
+
+.danger-link:hover {
+  color: var(--pt-rose);
 }
 
 .note {

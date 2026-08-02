@@ -1,5 +1,9 @@
 # Operator runbook — bringing the merged repo up
 
+> **Roadmap v2 note:** an existing pre-auth database must follow
+> [`docs/auth-rollout.md`](./auth-rollout.md) before running `pnpm db:migrate`.
+> The guarded migrator will refuse to finalize legacy rows without ownership.
+
 > ## NOTHING HAS BEEN APPLIED TO ANY DATABASE YET.
 >
 > No migration has been run, no catalog seeded, no plan progress migrated. The
@@ -90,6 +94,9 @@ All env vars live in **`apps/web/.env`** (gitignored;
 | --- | --- | --- |
 | `DSA_TRACKER_DATABASE_URL` | steps 2, 3, 4, 5 | Supabase Postgres URI. Use the transaction pooler form: `postgres://postgres.<ref>:<password>@aws-<region>.pooler.supabase.com:6543/postgres`. |
 | `NEON_LEGACY_DATABASE_URL` | step 4 only, and only without `--from-file` | The **old** `dsa-track` Neon database. The migration reads this name and *only* this name — it never falls back to `DATABASE_URL`. |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` | authenticated web app | Clerk frontend and server credentials. |
+| `CATALOG_REFRESH_SECRET` | catalog refresh | Required as `x-catalog-refresh-secret`. |
+| `LEGACY_OWNER_USER_ID`, `ALLOW_UNAUTHENTICATED_API` | temporary auth rollout only | See [`auth-rollout.md`](./auth-rollout.md); remove/disable after the extension is keyed. |
 
 The `SUPABASE_*` / `NEXT_PUBLIC_SUPABASE_*` keys already present in
 `apps/web/.env` are not read by any code path in this runbook — the app connects
@@ -111,8 +118,9 @@ cd /Users/rishit/Coding/dsa-merged
 pnpm db:migrate
 ```
 
-(`pnpm db:migrate` → `pnpm --filter web db:migrate` → `drizzle-kit migrate`,
-configured by `apps/web/drizzle.config.ts`.)
+(`pnpm db:migrate` → `pnpm --filter web db:migrate` → the guarded Drizzle
+migrator in `apps/web/scripts/migrate.ts`.) Existing databases with pre-auth
+rows must complete the staged ownership backfill first.
 
 ### What is in the migration folder
 

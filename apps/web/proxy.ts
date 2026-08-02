@@ -1,25 +1,29 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { clerkMiddleware } from '@clerk/nextjs/server';
+import { NextResponse } from 'next/server';
 
-// Open CORS on /api/* — personal single-user project, no auth by design.
-// Next 16 renamed the `middleware` file convention to `proxy`; this is the same
-// interceptor, Node-runtime only (it never declared runtime: 'edge').
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
-};
+const PUBLIC_PATHS = ['/sign-in', '/sign-up', '/__clerk'];
 
-export function proxy(request: NextRequest) {
-  if (request.method === 'OPTIONS') {
-    return new NextResponse(null, { status: 204, headers: CORS_HEADERS });
+export default clerkMiddleware(async (auth, request) => {
+  const path = request.nextUrl.pathname;
+  // API handlers authenticate opaque extension keys themselves. Keeping them
+  // outside session redirects preserves a stable JSON 401 contract.
+  if (path.startsWith('/api/')) return NextResponse.next();
+  if (PUBLIC_PATHS.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))) {
+    return NextResponse.next();
   }
-  const response = NextResponse.next();
-  for (const [k, v] of Object.entries(CORS_HEADERS)) {
-    response.headers.set(k, v);
+  const { userId } = await auth();
+  if (!userId) {
+    const url = new URL('/sign-in', request.url);
+    url.searchParams.set('redirect_url', request.nextUrl.pathname + request.nextUrl.search);
+    return NextResponse.redirect(url);
   }
-  return response;
-}
+  return NextResponse.next();
+});
 
 export const config = {
-  matcher: '/api/:path*',
+  matcher: [
+    '/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)',
+    '/(api|trpc)(.*)',
+    '/__clerk/(.*)',
+  ],
 };

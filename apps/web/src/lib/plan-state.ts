@@ -1,5 +1,5 @@
 import { PLAN_TZ, localDateKey } from '@dsa-tracker/plan-data';
-import { eq, gte, sql } from 'drizzle-orm';
+import { and, eq, gte, sql } from 'drizzle-orm';
 import { db, planChecks, planCounters, planDays, solvedProblems, solveEvents } from '@/db';
 import { publicErrorMessage } from '@/lib/api-error';
 
@@ -94,12 +94,12 @@ type PlanStateRow = {
  * `json_object_agg` builds the two keyed maps server-side, which is exactly the
  * `for` loops this used to run over the row lists.
  */
-export async function getPlanState(): Promise<PlanState> {
+export async function getPlanState(userId: string): Promise<PlanState> {
   try {
     const rows = await db.execute<PlanStateRow>(sql`
       select
         coalesce(
-          (select json_object_agg(c.check_id, c.done) from ${planChecks} c),
+          (select json_object_agg(c.check_id, c.done) from ${planChecks} c where c.user_id = ${userId}),
           '{}'::json
         ) as checks,
         (select json_object_agg(
@@ -112,13 +112,13 @@ export async function getPlanState(): Promise<PlanState> {
              'floorLog', d.floor_log,
              'trip', d.trip
            )
-         ) from ${planDays} d) as days,
+         ) from ${planDays} d where d.user_id = ${userId}) as days,
         (select json_build_object(
            'dsa', p.dsa,
            'dsaExtra', p.dsa_extra,
            'dsaHist', p.dsa_hist,
            'dsaExtraHist', p.dsa_extra_hist
-         ) from ${planCounters} p where p.id = ${COUNTERS_ID}) as counters
+         ) from ${planCounters} p where p.user_id = ${userId} and p.id = ${COUNTERS_ID}) as counters
     `);
 
     const row = rows[0];
@@ -147,11 +147,12 @@ export async function getPlanState(): Promise<PlanState> {
  * real solves. Selects only the key column — getAllSolved() would additionally
  * fetch every row's metadata and chunk-join solve_events, which this never needs.
  */
-export async function getSolvedKeySet(): Promise<Set<string>> {
+export async function getSolvedKeySet(userId: string): Promise<Set<string>> {
   try {
     const rows = await db
       .select({ canonicalKey: solvedProblems.canonicalKey })
-      .from(solvedProblems);
+      .from(solvedProblems)
+      .where(eq(solvedProblems.userId, userId));
     return new Set(rows.map((row) => row.canonicalKey));
   } catch (err) {
     console.error(`getSolvedKeySet failed, returning empty set: ${publicErrorMessage(err)}`);
@@ -169,7 +170,7 @@ type LiveSolveStatsRow = {
  * Backfills/imports deliberately do not count: their event timestamps describe
  * the import, not the day the problem was solved.
  */
-export async function getLiveSolveStats(): Promise<LiveSolveStats> {
+export async function getLiveSolveStats(userId: string): Promise<LiveSolveStats> {
   try {
     const rows = await db.execute<LiveSolveStatsRow>(sql`
       select
@@ -180,7 +181,7 @@ export async function getLiveSolveStats(): Promise<LiveSolveStats> {
                to_char(day_events.created_at at time zone ${PLAN_TZ}, 'YYYY-MM-DD') as day,
                count(distinct day_events.canonical_key)::int as n
              from ${solveEvents} day_events
-             where day_events.detected <> 'backfill'
+             where day_events.user_id = ${userId} and day_events.detected <> 'backfill'
              group by 1
            ) per_day),
           '{}'::json
@@ -201,7 +202,7 @@ export async function getLiveSolveStats(): Promise<LiveSolveStats> {
  *
  * One windowed query plus an in-memory walk — never 60 round trips.
  */
-export async function getPlanStreak(solvedPerDay: Record<string, number> = {}): Promise<number> {
+export async function getPlanStreak(userId: string, solvedPerDay: Record<string, number> = {}): Promise<number> {
   try {
     const cursor = new Date();
     const windowStart = new Date();
@@ -217,7 +218,7 @@ export async function getPlanStreak(solvedPerDay: Record<string, number> = {}): 
         trip: planDays.trip,
       })
       .from(planDays)
-      .where(gte(planDays.date, localDateKey(windowStart)));
+      .where(and(eq(planDays.userId, userId), gte(planDays.date, localDateKey(windowStart))));
 
     const byDate = new Map(rows.map((row) => [row.date, row]));
 
@@ -248,13 +249,13 @@ export async function getPlanStreak(solvedPerDay: Record<string, number> = {}): 
 // mutation must surface to the Server Action instead of silently no-opping.
 // ---------------------------------------------------------------------------
 
-export async function setCheck(checkId: string, done: boolean): Promise<void> {
+export async function setCheck(userId: string, checkId: string, done: boolean): Promise<void> {
   if (!checkId) throw new Error('setCheck requires a check id');
   const updatedAt = new Date();
   await db
     .insert(planChecks)
-    .values({ checkId, done, updatedAt })
-    .onConflictDoUpdate({ target: planChecks.checkId, set: { done, updatedAt } });
+    .values({ userId, checkId, done, updatedAt })
+    .onConflictDoUpdate({ target: [planChecks.userId, planChecks.checkId], set: { done, updatedAt } });
 }
 
 type FloorPatch = { floorDsa: boolean } | { floorCpp: boolean } | { floorLog: boolean };
@@ -271,6 +272,7 @@ function floorPatch(which: 'dsa' | 'cpp' | 'log', value: boolean): FloorPatch {
 }
 
 export async function setFloor(
+  userId: string,
   date: string,
   which: 'dsa' | 'cpp' | 'log',
   value: boolean,
@@ -279,43 +281,43 @@ export async function setFloor(
   const patch = floorPatch(which, value);
   await db
     .insert(planDays)
-    .values({ date, ...patch })
-    .onConflictDoUpdate({ target: planDays.date, set: patch });
+    .values({ userId, date, ...patch })
+    .onConflictDoUpdate({ target: [planDays.userId, planDays.date], set: patch });
 }
 
-export async function setTrip(date: string, value: boolean): Promise<void> {
+export async function setTrip(userId: string, date: string, value: boolean): Promise<void> {
   assertDateKey(date);
   await db
     .insert(planDays)
-    .values({ date, trip: value })
-    .onConflictDoUpdate({ target: planDays.date, set: { trip: value } });
+    .values({ userId, date, trip: value })
+    .onConflictDoUpdate({ target: [planDays.userId, planDays.date], set: { trip: value } });
 }
 
 /**
  * Persist the day's log. Saving a log also claims the "log" floor, matching the
  * source store. Clearing a log never un-claims a floor that is already set.
  */
-export async function saveLog(date: string, text: string): Promise<void> {
+export async function saveLog(userId: string, date: string, text: string): Promise<void> {
   assertDateKey(date);
   const log = text.trim();
   const claimsFloor = log.length > 0;
   await db
     .insert(planDays)
-    .values({ date, log: log || null, floorLog: claimsFloor })
+    .values({ userId, date, log: log || null, floorLog: claimsFloor })
     .onConflictDoUpdate({
-      target: planDays.date,
+      target: [planDays.userId, planDays.date],
       set: { log: log || null, ...(claimsFloor ? { floorLog: true } : {}) },
     });
 }
 
 /** Persist the day's note. An empty/whitespace-only string clears it to NULL. */
-export async function setNote(date: string, text: string): Promise<void> {
+export async function setNote(userId: string, date: string, text: string): Promise<void> {
   assertDateKey(date);
   const note = text.trim().slice(0, NOTE_MAX_LEN) || null;
   await db
     .insert(planDays)
-    .values({ date, note })
-    .onConflictDoUpdate({ target: planDays.date, set: { note } });
+    .values({ userId, date, note })
+    .onConflictDoUpdate({ target: [planDays.userId, planDays.date], set: { note } });
 }
 
 /** Whole positive increments only; anything else is ignored, as in the source store. */
@@ -330,7 +332,7 @@ function normalizeIncrement(n: number): number | null {
  * one atomic upsert — a read-modify-write from the app would race concurrent
  * clicks and cost an extra round trip on the max: 1 client.
  */
-async function bumpCounter(which: 'dsa' | 'extra', inc: number): Promise<void> {
+async function bumpCounter(userId: string, which: 'dsa' | 'extra', inc: number): Promise<void> {
   const valueCol = which === 'dsa' ? planCounters.dsa : planCounters.dsaExtra;
   const histCol = which === 'dsa' ? planCounters.dsaHist : planCounters.dsaExtraHist;
   const bumped = sql`least(${sql.raw(String(MAX_DSA))}, ${valueCol} + ${inc})`;
@@ -340,11 +342,11 @@ async function bumpCounter(which: 'dsa' | 'extra', inc: number): Promise<void> {
     .insert(planCounters)
     .values(
       which === 'dsa'
-        ? { id: COUNTERS_ID, dsa: Math.min(MAX_DSA, inc), dsaHist: [inc] }
-        : { id: COUNTERS_ID, dsaExtra: Math.min(MAX_DSA, inc), dsaExtraHist: [inc] },
+        ? { userId, id: COUNTERS_ID, dsa: Math.min(MAX_DSA, inc), dsaHist: [inc] }
+        : { userId, id: COUNTERS_ID, dsaExtra: Math.min(MAX_DSA, inc), dsaExtraHist: [inc] },
     )
     .onConflictDoUpdate({
-      target: planCounters.id,
+      target: [planCounters.userId, planCounters.id],
       set:
         which === 'dsa'
           ? { dsa: bumped, dsaHist: pushed }
@@ -357,7 +359,7 @@ async function bumpCounter(which: 'dsa' | 'extra', inc: number): Promise<void> {
  * array element; the counter floors at 0 because the add path clamps at
  * MAX_DSA while history keeps the un-clamped increment.
  */
-async function popCounter(which: 'dsa' | 'extra'): Promise<void> {
+async function popCounter(userId: string, which: 'dsa' | 'extra'): Promise<void> {
   const valueCol = which === 'dsa' ? planCounters.dsa : planCounters.dsaExtra;
   const histCol = which === 'dsa' ? planCounters.dsaHist : planCounters.dsaExtraHist;
   const restored = sql`greatest(0, ${valueCol} - coalesce((${histCol} -> -1)::int, 0))`;
@@ -367,33 +369,33 @@ async function popCounter(which: 'dsa' | 'extra'): Promise<void> {
   await db
     .update(planCounters)
     .set(which === 'dsa' ? { dsa: restored, dsaHist: popped } : { dsaExtra: restored, dsaExtraHist: popped })
-    .where(eq(planCounters.id, COUNTERS_ID));
+    .where(and(eq(planCounters.userId, userId), eq(planCounters.id, COUNTERS_ID)));
 }
 
 /** Count of DSA problems already credited to `date` (checked plan problems). */
-async function dsaSolvedOn(date: string): Promise<number> {
+async function dsaSolvedOn(userId: string, date: string): Promise<number> {
   const [row] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(planChecks)
-    .where(sql`${planChecks.done} and ${planChecks.checkId} like ${`prob:${date}:%`}`);
+    .where(and(eq(planChecks.userId, userId), sql`${planChecks.done} and ${planChecks.checkId} like ${`prob:${date}:%`}`));
   return row?.count ?? 0;
 }
 
-export async function addDsa(n: number): Promise<void> {
+export async function addDsa(userId: string, n: number): Promise<void> {
   const inc = normalizeIncrement(n);
   if (inc === null) return;
-  await bumpCounter('dsa', inc);
-  if (inc >= DSA_FLOOR) await setFloor(localDateKey(), 'dsa', true);
+  await bumpCounter(userId, 'dsa', inc);
+  if (inc >= DSA_FLOOR) await setFloor(userId, localDateKey(), 'dsa', true);
 }
 
-export async function undoDsa(): Promise<void> {
-  await popCounter('dsa');
+export async function undoDsa(userId: string): Promise<void> {
+  await popCounter(userId, 'dsa');
 }
 
-export async function addDsaExtra(n: number): Promise<void> {
+export async function addDsaExtra(userId: string, n: number): Promise<void> {
   const inc = normalizeIncrement(n);
   if (inc === null) return;
-  await bumpCounter('extra', inc);
+  await bumpCounter(userId, 'extra', inc);
 
   // The source store's comment said extras "count toward the daily floor if
   // total solved >= 4" but its code tested the single increment (n >= 4).
@@ -401,10 +403,10 @@ export async function addDsaExtra(n: number): Promise<void> {
   // total — problems already checked off for today plus these extras —
   // reaches DSA_FLOOR.
   const today = localDateKey();
-  const total = (await dsaSolvedOn(today)) + inc;
-  if (total >= DSA_FLOOR) await setFloor(today, 'dsa', true);
+  const total = (await dsaSolvedOn(userId, today)) + inc;
+  if (total >= DSA_FLOOR) await setFloor(userId, today, 'dsa', true);
 }
 
-export async function undoDsaExtra(): Promise<void> {
-  await popCounter('extra');
+export async function undoDsaExtra(userId: string): Promise<void> {
+  await popCounter(userId, 'extra');
 }

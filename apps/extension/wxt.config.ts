@@ -5,7 +5,7 @@ export default defineConfig({
   manifest: {
     name: 'DSA Tracker',
     description:
-      'Tracks unique DSA questions solved across LeetCode, NeetCode, and Striver A2Z',
+      'Tracks unique DSA questions solved across LeetCode, NeetCode, Striver A2Z, and GeeksforGeeks',
     // scripting + tabs: run history collectors inside LeetCode/NeetCode tabs
     // so each collector can use the site's first-party login session.
     permissions: ['storage', 'alarms', 'webNavigation', 'scripting', 'tabs'],
@@ -13,6 +13,9 @@ export default defineConfig({
       '*://leetcode.com/*',
       '*://neetcode.io/*',
       '*://takeuforward.org/*',
+      '*://geeksforgeeks.org/*',
+      '*://www.geeksforgeeks.org/*',
+      '*://practice.geeksforgeeks.org/*',
       'http://localhost/*',
       'https://*.vercel.app/*',
     ],

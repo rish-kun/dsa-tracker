@@ -1,214 +1,133 @@
-import type { PageProblemMessage, SolveRequest } from '@dsa-tracker/shared';
+import type { SolveRequest } from '@dsa-tracker/shared';
 import type { ContentScriptContext } from 'wxt/utils/content-script-context';
-import { createBanner, type BannerHandle } from '../../components/Banner';
-import { sendMessage } from '../../lib/messaging';
+import { createSiteAdapterRunner } from '../../lib/site-adapter';
+
+type ProblemContext = { slug: string; title: string; url: string };
+
+function currentSlug(): string | null {
+  return location.pathname.match(/\/problems\/([^/]+)/)?.[1] ?? null;
+}
+
+function cleanTitle(): string {
+  return document.title.replace(/\s*[-|]\s*LeetCode.*$/i, '').trim() || document.title;
+}
+
+function captureProblemContext(submittedSlug?: string): ProblemContext | null {
+  const routeSlug = currentSlug();
+  const slug = submittedSlug || routeSlug;
+  if (!slug) return null;
+  const onSubmittedRoute = routeSlug === slug;
+  return {
+    slug,
+    title: onSubmittedRoute
+      ? cleanTitle()
+      : slug
+          .split('-')
+          .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+          .join(' '),
+    url: onSubmittedRoute ? location.href : `https://leetcode.com/problems/${slug}/`,
+  };
+}
+
+function solveRequest(problem: ProblemContext, detected: 'auto' | 'manual'): SolveRequest {
+  return {
+    canonicalKey: `lc:${problem.slug}`,
+    lcSlug: problem.slug,
+    title: problem.title,
+    source: 'leetcode',
+    url: problem.url,
+    detected,
+  };
+}
 
 export default defineContentScript({
-  // The MAIN-world interceptor (leetcode-main.content.ts) is registered
-  // separately in the manifest and relays signals via window.postMessage.
+  // The separately manifest-registered MAIN-world interceptor relays submit
+  // and verdict signals through window.postMessage. It intentionally remains
+  // unchanged: only the isolated-world lifecycle is shared with other sites.
   matches: ['*://leetcode.com/problems/*'],
   runAt: 'document_start',
   async main(ctx: ContentScriptContext) {
-    type ProblemContext = {
-      slug: string;
-      title: string;
-      url: string;
-    };
+    const runner = createSiteAdapterRunner(ctx, {
+      mode: 'auto',
+      isProblemPage: () => currentSlug() !== null,
+      totalFor(_payload, totals) {
+        return { label: 'Unique total', total: totals.lcUnique };
+      },
+      async detect() {
+        const problem = captureProblemContext();
+        return problem ? solveRequest(problem, 'manual') : null;
+      },
+    });
+    runner.registerMessages();
 
-    let banner: BannerHandle | null = null;
     const seenSubmissions = new Set<string>();
+    const polledSubmissions = new Set<string>();
     const submissionContexts = new Map<string, ProblemContext>();
     let lastAutoMark = 0;
 
-    function currentSlug(): string | null {
-      const m = location.pathname.match(/\/problems\/([^/]+)/);
-      return m?.[1] ?? null;
-    }
-
-    function cleanTitle(): string {
-      return document.title.replace(/\s*[-|]\s*LeetCode.*$/i, '').trim() || document.title;
-    }
-
-    function captureProblemContext(submittedSlug?: string): ProblemContext | null {
-      const routeSlug = currentSlug();
-      const slug = submittedSlug || routeSlug;
-      if (!slug) return null;
-
-      const isSubmittedRoute = routeSlug === slug;
-      return {
-        slug,
-        title: isSubmittedRoute
-          ? cleanTitle()
-          : slug
-              .split('-')
-              .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-              .join(' '),
-        url: isSubmittedRoute ? location.href : `https://leetcode.com/problems/${slug}/`,
-      };
-    }
-
-    function currentSolveRequest(): SolveRequest | null {
-      const problem = captureProblemContext();
-      if (!problem) return null;
-      return {
-        canonicalKey: `lc:${problem.slug}`,
-        lcSlug: problem.slug,
-        title: problem.title,
-        source: 'leetcode',
-        url: problem.url,
-        detected: 'manual',
-      };
-    }
-
-    async function removeBanner() {
-      banner?.remove();
-      banner = null;
-    }
-
-    async function ensureBanner(): Promise<BannerHandle> {
-      if (!banner) {
-        banner = await createBanner(ctx, { state: { kind: 'queued' } });
-      }
-      return banner;
-    }
-
-    async function check() {
-      const slug = currentSlug();
-      if (!slug) return removeBanner();
-      const res = await sendMessage({ type: 'CHECK_PROBLEM', canonicalKey: `lc:${slug}` });
-      if (res.solved && res.entry) {
-        const b = await ensureBanner();
-        b.update({
-          state: {
-            kind: 'already-solved',
-            title: res.entry.title,
-            source: res.entry.firstSource,
-            date: res.entry.firstSolvedAt,
-          },
-          onClose: () => removeBanner(),
-        });
-      } else {
-        // LeetCode is auto-detect only — no prompt banner for unsolved problems.
-        await removeBanner();
-      }
-    }
-
-    async function showToast(kind: 'recorded' | 'queued', total = 0, isNew = true) {
-      const b = await ensureBanner();
-      b.update({
-        state:
-          kind === 'queued'
-            ? { kind: 'queued' }
-            : { kind: 'recorded', isNew, total, label: 'Unique total' },
-        onClose: () => removeBanner(),
-      });
-      ctx.setTimeout(() => removeBanner(), 5000);
-    }
-
-    async function onAccepted(submissionId: string | null) {
+    async function onAccepted(submissionId: string | null): Promise<void> {
       const problem =
         (submissionId ? submissionContexts.get(submissionId) : null) ?? captureProblemContext();
       if (!problem) return;
-
       const now = Date.now();
       if (submissionId) {
         if (seenSubmissions.has(submissionId)) return;
         seenSubmissions.add(submissionId);
       } else if (now - lastAutoMark < 5000) {
-        // No id (graphql): guard against rapid duplicate signals.
         return;
       }
       lastAutoMark = now;
-
-      const payload: SolveRequest = {
-        canonicalKey: `lc:${problem.slug}`,
-        lcSlug: problem.slug,
-        title: problem.title,
-        source: 'leetcode',
-        url: problem.url,
-        detected: 'auto',
-      };
-      const res = await sendMessage({ type: 'MARK_SOLVED', payload });
-      if (res.queued) await showToast('queued');
-      else if (res.isNew) await showToast('recorded', res.totals.lcUnique, true);
-      // If not new, it was already counted — no toast needed.
+      await runner.recordAuto(solveRequest(problem, 'auto'));
     }
 
-    /**
-     * Actively poll the verdict for a submission id caught by the interceptor.
-     * Content-script fetches run against the page origin, so first-party
-     * session cookies apply. This is the primary detection path — it works
-     * regardless of how the page itself transports its result (fetch, XHR
-     * that got unwrapped, websocket, ...).
-     */
-    const polledSubmissions = new Set<string>();
-    async function pollVerdict(submissionId: string) {
+    /** Poll in the isolated world so LeetCode session cookies apply. Each id
+     * retains its submit-time problem context, even after SPA navigation. */
+    async function pollVerdict(submissionId: string): Promise<void> {
       if (polledSubmissions.has(submissionId)) return;
       polledSubmissions.add(submissionId);
       const deadline = Date.now() + 90_000;
       while (Date.now() < deadline && ctx.isValid) {
         try {
-          const res = await fetch(
+          const response = await fetch(
             `https://leetcode.com/submissions/detail/${submissionId}/check/`,
             { credentials: 'include' },
           );
-          if (res.ok) {
-            const json = await res.json();
-            if (json?.state === 'SUCCESS') {
-              if (json?.status_msg === 'Accepted') void onAccepted(submissionId);
-              return; // terminal verdict (accepted or not) — stop polling
+          if (response.ok) {
+            const verdict = await response.json();
+            if (verdict?.state === 'SUCCESS') {
+              if (verdict?.status_msg === 'Accepted') await onAccepted(submissionId);
+              return;
             }
           }
         } catch {
-          // transient network error — keep polling until the deadline
+          // A transient page-origin failure is retried until the deadline.
         }
-        await new Promise((r) => setTimeout(r, 1200));
+        await new Promise((resolve) => setTimeout(resolve, 1200));
       }
     }
 
-    // Signals from the MAIN-world interceptor.
-    window.addEventListener('message', (e: MessageEvent) => {
-      if (e.source !== window) return;
-      const d = e.data;
-      if (!d || d.source !== 'dsa-tracker-interceptor') return;
-      if (d.kind === 'submitted' && d.submissionId) {
-        const submissionId = String(d.submissionId);
-        const problem = captureProblemContext(
-          typeof d.slug === 'string' && d.slug ? d.slug : undefined,
-        );
-        if (problem) submissionContexts.set(submissionId, problem);
-        void pollVerdict(submissionId);
-      } else if (d.kind === 'accepted') {
-        const submissionId = d.submissionId ? String(d.submissionId) : null;
-        if (submissionId && !submissionContexts.has(submissionId)) {
-          const problem = captureProblemContext(
-            typeof d.slug === 'string' && d.slug ? d.slug : undefined,
-          );
-          if (problem) submissionContexts.set(submissionId, problem);
+    const onInterceptorMessage = (event: MessageEvent) => {
+      if (event.source !== window) return;
+      const data = event.data;
+      if (!data || data.source !== 'dsa-tracker-interceptor') return;
+      const submittedSlug = typeof data.slug === 'string' && data.slug ? data.slug : undefined;
+      if (data.kind === 'submitted' && data.submissionId) {
+        const id = String(data.submissionId);
+        const problem = captureProblemContext(submittedSlug);
+        if (problem) submissionContexts.set(id, problem);
+        void pollVerdict(id);
+      } else if (data.kind === 'accepted') {
+        const id = data.submissionId ? String(data.submissionId) : null;
+        if (id && !submissionContexts.has(id)) {
+          const problem = captureProblemContext(submittedSlug);
+          if (problem) submissionContexts.set(id, problem);
         }
-        void onAccepted(submissionId);
+        void onAccepted(id);
       }
-    });
+    };
+    window.addEventListener('message', onInterceptorMessage);
+    ctx.onInvalidated(() => window.removeEventListener('message', onInterceptorMessage));
 
-    // Debounced re-check on SPA route changes.
-    let debounce: ReturnType<typeof setTimeout> | undefined;
-    function scheduleCheck() {
-      if (debounce) clearTimeout(debounce);
-      debounce = setTimeout(() => void check(), 300);
-    }
-
-    chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-      if ((msg as PageProblemMessage)?.type === 'GET_PAGE_PROBLEM') {
-        sendResponse(currentSolveRequest());
-        return false;
-      }
-      if (msg?.type === 'ROUTE_CHANGED') {
-        void removeBanner();
-        scheduleCheck();
-      }
-      return false;
-    });
-
-    scheduleCheck();
+    runner.scheduleCheck();
   },
 });

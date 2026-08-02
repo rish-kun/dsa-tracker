@@ -4,6 +4,7 @@ const CLASS: Record<string, string> = {
   leetcode: 'src-leetcode',
   neetcode: 'src-neetcode',
   tuf: 'src-tuf',
+  gfg: 'src-gfg',
   backfill: 'src-backfill',
 };
 
