@@ -4,15 +4,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Personal single-user DSA tracker: a WXT (Manifest V3) browser extension detects
-problems being solved on leetcode.com / neetcode.io / takeuforward.org and
-records them through a Next.js API backed by Supabase Postgres. Everything
-dedupes on a **canonical key**: `lc:<leetcode-titleSlug>` for LeetCode-mappable
-problems (the main "unique solved" counter), `nc:<ncSlug>`/`tuf:<slug>`/
-`gfg:<slug>` for problems with no LeetCode equivalent (separate counter). No
-auth anywhere by design. A merged-in second app adds a `/plan` route: a
-hardcoded 26-day study plan whose LeetCode items auto-tick from the same
-`solved_problems` table.
+Multi-user DSA tracker: a WXT (Manifest V3) browser extension detects problems
+being solved on leetcode.com / neetcode.io / takeuforward.org /
+geeksforgeeks.org and records them through a Next.js API backed by Supabase
+Postgres. Everything dedupes on a **canonical key**: `lc:<leetcode-titleSlug>`
+for LeetCode-mappable problems (the main "unique solved" counter),
+`nc:<ncSlug>`/`tuf:<slug>`/`gfg:<slug>` for problems with no LeetCode
+equivalent (separate counter). **Everything is authenticated.** Clerk gates
+every page via `apps/web/proxy.ts`; `/api/*` authenticates opaque **scoped**
+bearer API keys minted at `/settings`; every user-owned table is
+`user_id`-scoped with RLS enabled. Never write a new route, query or table that
+skips this — see **Auth model** below. A merged-in second app adds a `/plan`
+route: a hardcoded 26-day study plan whose LeetCode items auto-tick from the
+same `solved_problems` table. `/plan` is the one surface additionally
+restricted to a single account (`PLAN_OWNER_EMAIL`); the rest of the app is
+per-user.
 
 ## Commands
 
@@ -22,7 +28,8 @@ pnpm dev                   # Next.js web app + API on http://localhost:3000
 pnpm dev:ext               # WXT dev mode (launches browser with extension)
 pnpm build                 # build all workspaces
 pnpm db:generate           # drizzle-kit: generate migration from schema changes
-pnpm db:migrate            # apply migrations (0001_easy_toxin is still UNAPPLIED)
+pnpm db:migrate            # apply migrations (all 7 are applied; guarded — see below)
+pnpm auth:backfill         # assign user_id to pre-auth rows (DRY RUN unless --commit)
 pnpm db:seed               # import LeetCode catalog (~4k rows) into `problems`
 pnpm plan:keys             # re-resolve canonicalKey in packages/plan-data
 pnpm plan:migrate          # legacy Neon plan blob -> plan_* (DRY RUN unless --commit)
@@ -37,6 +44,14 @@ cd apps/extension && pnpm wxt prepare && ./node_modules/.bin/tsc --noEmit
 cd apps/extension && pnpm build
 ```
 
+`pnpm db:migrate` is **guarded**: `apps/web/scripts/migrate.ts` refuses to run
+and tells you to run `pnpm auth:backfill -- --user-id user_xxx --commit` first
+whenever legacy rows exist without `user_id` (0005 makes that column NOT NULL,
+so an unbackfilled DB would break). `auth:backfill`
+(`scripts/backfill-user-ownership.ts`) applies migrations only through `0004`
+and transactionally assigns ownership; the staged production sequence is in
+`docs/auth-rollout.md`.
+
 `apps/web/.env` needs `DSA_TRACKER_DATABASE_URL` (Supabase Postgres URI).
 **The project-specific name is load-bearing**: the user's shell profile exports
 a generic `DATABASE_URL` pointing at an unrelated Neon database, and both
@@ -47,10 +62,12 @@ dotenv and Next.js let pre-existing env vars win over `.env`. Never read bare
 ## Architecture
 
 Four workspaces (`pnpm-workspace.yaml` globs `apps/*` + `packages/*`, so new
-packages need no config change): `apps/web` (Next.js 16 App Router — three
-routes: `/` dashboard (`app/page.tsx`), `/plan` tracker (`app/plan/page.tsx`),
-`/problems` table (`app/problems/page.tsx`) — plus all 7 API routes and the
-Drizzle schema), `apps/extension` (WXT +
+packages need no config change): `apps/web` (Next.js 16 App Router — `/`
+dashboard (`app/page.tsx`), `/plan` tracker (`app/plan/page.tsx`), `/problems`
+table (`app/problems/page.tsx`), `/settings` (`app/settings/page.tsx`,
+extension API key management) and the Clerk catch-alls
+`/sign-in/[[...sign-in]]` + `/sign-up/[[...sign-up]]` — plus all 7 API routes
+and the Drizzle schema), `apps/extension` (WXT +
 React), `packages/shared` (pure TS types exported as raw source, transpiled by
 each consumer — it is the API contract *and* the extension's internal message
 protocol; change shapes here first), and `packages/plan-data` (the hardcoded
@@ -64,6 +81,18 @@ CORS-bound to the host page's origin, only the service worker (via
 (`entrypoints/background.ts`) also owns a `chrome.storage.local` cache of the
 solved-key set (so banners render without network) and an offline write queue
 flushed on the next successful sync.
+
+**The extension's backend URL is hardcoded, deliberately.**
+`DEFAULT_API_BASE` at `apps/extension/entrypoints/background.ts:29` is the
+single source; `normalizeBase()` at `:112` **ignores its argument and returns
+that constant**, so the `SET_API_BASE` message survives in the union only as a
+no-op compatibility shim for older popups. The matching single fixed origin is
+in `apps/extension/wxt.config.ts:19` `host_permissions` — one literal
+`https://…vercel.app/*`, **not** a `*.vercel.app` wildcard. Changing the
+backend means editing **both** files and rebuilding. **Do not reintroduce a
+settings field for it** — commit `71b204e` removed it on purpose. The popup's
+only credential input is the API key; it lives in `chrome.storage.local` and is
+never returned to popup callers, which see `hasApiKey: boolean` only.
 
 Per-site detection (`apps/extension/entrypoints/*.content/`):
 - **leetcode**: slug from URL; Accepted is auto-detected in two halves.
@@ -116,6 +145,45 @@ leetcode.com tab (first-party session cookies apply there) paginating GraphQL
 `/api/backfill`. The NeetCode import (`RUN_NC_IMPORT`) does the equivalent
 inside a neetcode.io tab — reads the Firebase session from IndexedDB, calls
 NeetCode's `getCompletedProblems` callable, and POSTs the ids to `/api/import`.
+
+## Auth model
+
+**`apps/web/src/lib/auth.ts` is the only place auth policy lives.** Do not
+re-implement any of it inline in a route, page or action:
+
+- `requireUser()` / `isPlanUser()` / `requirePlanUser()` for pages and Server
+  Actions; `requireApiUser(request)` for `/api/*` route handlers.
+- `requireApiUser` parses `Authorization: Bearer <secret>`, calls
+  `clerkClient().apiKeys.verify()`, and rejects unless the key carries
+  `EXTENSION_SCOPE = 'dsa-tracker:extension'`. It also rejects org subjects
+  (`org_` prefix), revoked keys and expired keys. **A generic Clerk user API
+  key does NOT work** — only keys minted with that scope.
+- On failure use `unauthorizedApiResponse()`. The 401 body is exactly
+  `{"error":"A valid extension API key is required"}` with `Cache-Control:
+  no-store` and `Vary: Authorization`. That is the contract the extension
+  parses; don't change the shape.
+- `PLAN_OWNER_EMAIL` is a hardcoded constant compared only against **verified**
+  Clerk email addresses (`verification?.status === 'verified'`) — never trust a
+  client-supplied claim.
+- `POST /api/catalog/refresh` is the **one** route that does not use Clerk: it
+  compares header `x-catalog-refresh-secret` against env
+  `CATALOG_REFRESH_SECRET`, and 401s when that env var is unset (so an
+  unconfigured deploy fails closed).
+- `ALLOW_UNAUTHENTICATED_API=true` + `LEGACY_OWNER_USER_ID` is a **migration
+  bridge**, not a fallback: `legacyApiUser()` fires **only when the
+  `Authorization` header is entirely absent**. An invalid or unscoped key is
+  always a 401. Do not extend this path, and do not reach for it to "make the
+  extension work".
+- Keys are minted and revoked in `app/settings/actions.ts`;
+  `createExtensionKey` returns the secret **only on the creating invocation**
+  (Clerk never hands it back), so the UI shows it once.
+- Env vars auth adds: `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`,
+  `CATALOG_REFRESH_SECRET` (plus the two bridge vars). See
+  `apps/web/.env.example`.
+- RLS is enabled on `solved_problems`, `solve_events`, `plan_checks`,
+  `plan_days`, `plan_counters` by `drizzle/0006_enable_user_table_rls.sql` (no
+  policies — the server connects as the DB role, so direct Data API access is
+  denied). **Any new user-owned table must get `user_id` + RLS the same way.**
 
 ## The merged plan tracker (`/plan`)
 
@@ -181,9 +249,18 @@ time.
   `dsa_extra` integers default 0, `dsa_hist` / `dsa_extra_hist` jsonb default
   `'[]'` (undo stacks of raw increments).
 
-All three migrations (`0000`–`0002`) are applied to the Supabase database.
-The defensive `/plan` read fallbacks still matter for builds and temporary DB
-outages, but writes are expected to work without further migration setup.
+All seven migrations (`0000_charming_red_hulk` … `0006_enable_user_table_rls`)
+are applied to the Supabase database. The defensive `/plan` read fallbacks
+still matter for builds and temporary DB outages, but writes are expected to
+work without further migration setup.
+
+**Trap: `apps/web/drizzle/meta/` has snapshots for `0000`–`0003` and `0006`
+but NOT `0004`/`0005`** — those two were hand-authored (`0004_user_ownership`,
+`0005_finalize_user_ownership`) rather than generated. A future
+`drizzle-kit generate` diffs against the snapshot chain, so it can emit a
+migration that re-adds or re-alters columns those two already changed. Inspect
+generated SQL before committing it, and prefer hand-authoring a follow-up
+migration over trusting the diff.
 
 **Auto-tick rule** (`app/plan/page.tsx`, `resolveChecks`):
 
@@ -226,11 +303,18 @@ counters) go through `app/plan/actions.ts` — thin wrappers that call
 was added for the plan; there are still exactly 7.** `/api/*` stays the
 **extension's** open contract, versioned by `packages/shared`, and was
 deliberately not widened — do not add plan endpoints there, and do not route
-extension traffic through Server Actions. CORS on `/api/*` is fully open
-(`Access-Control-Allow-Origin: *`), set by **`apps/web/proxy.ts`** — deliberate
-for a single-user personal deployment with no auth. That file was
-`middleware.ts` until Next 16 renamed the convention to `proxy`; it is the same
-interceptor, Node-runtime only, still scoped by `matcher: '/api/:path*'`.
+extension traffic through Server Actions.
+
+**`apps/web/proxy.ts` is `clerkMiddleware`.** It sets **no CORS headers** —
+there are zero `Access-Control-*` headers anywhere in this repo; do not claim
+otherwise or "restore" them. What it does: returns `NextResponse.next()` for
+`/api/*` so route handlers own their own JSON 401 contract instead of being
+redirected into an HTML sign-in page, and redirects unauthenticated **page**
+requests to `/sign-in?redirect_url=<path+search>`. Public prefixes are
+`/sign-in`, `/sign-up`, `/__clerk`. That file was `middleware.ts` until Next 16
+renamed the convention to `proxy`; it is the same interceptor, Node-runtime
+only. Its `matcher` now covers the whole app (non-asset paths + `/(api|trpc)`
++ `/__clerk/`), not just `/api/:path*`.
 
 Read/write split in `src/lib/plan-state.ts`: reads (`getPlanState`,
 `getSolvedKeySet`, `getPlanStreak`) **never throw** — they log and return empty
@@ -291,12 +375,39 @@ theme. Tailwind's dark variant is wired to it via
 token block stay in sync. Never write a `@media (prefers-color-scheme: dark)`
 block in this stylesheet.
 
-## The extension was not touched by the merge
+## The plan merge did not touch the extension — but the extension has moved on
 
-`apps/extension` is byte-for-byte unchanged by the merge (`git status --short
-apps/extension` is empty) and still builds. The plan half is entirely
-web-side. Nothing about the plan needs the extension to change — it already
-writes `solved_problems`, which is the only thing `/plan` derives from.
+**About the merge specifically:** the plan half is entirely web-side.
+`apps/extension` was byte-for-byte unchanged *by that merge*, and nothing about
+the plan needs the extension to change — it already writes `solved_problems`,
+which is the only thing `/plan` derives from. Keep it that way: plan features
+belong in `apps/web`.
+
+**This does not mean the extension is frozen.** Since the merge it has gained
+the API-key auth flow (popup key entry, `Authorization: Bearer` on every
+backend call, `authState` in storage), a GeeksforGeeks adapter
+(`entrypoints/gfg.content/`), and the unified site-adapter refactor —
+`apps/extension/lib/site-adapter.ts` now owns the shared detect → resolve →
+banner → record loop, and each per-site entrypoint supplies a `SiteAdapter`
+(`isProblemPage?`, `detect`, `mode: 'auto' | 'manual'`). Add a new site by
+writing an adapter, not by copying an entrypoint. `git status --short
+apps/extension` being empty is a statement about your working tree, not about
+the extension's history.
+
+## Releasing the extension
+
+`.github/workflows/release-extension.yml` builds the Chromium bundle and
+attaches `dsa-tracker-extension-<tag>-chrome.zip` to a GitHub Release on a
+`v*` tag push (or `workflow_dispatch` with an existing tag). It **hard-fails
+when the tag version does not match `apps/extension/package.json` `version`**
+— a mismatched bundle is one Chrome refuses to treat as an update. So: bump
+that version, **commit**, then tag. `wxt zip` builds first, so there is no
+separate build step; the raw artifact is
+`apps/extension/.output/extension-<version>-chrome.zip` and is **renamed at
+upload time** rather than by overriding `zip.name` in `wxt.config.ts` (the
+extension source stays untouched). Chromium only — **do not add a Firefox
+leg**: the code uses `chrome.*` MV3 APIs, a `world: 'MAIN'` content script, and
+there is no `browser_specific_settings` gecko id.
 
 ## Gotchas
 

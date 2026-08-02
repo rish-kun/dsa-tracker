@@ -1,0 +1,98 @@
+name: Release extension
+
+# Builds the Chromium extension bundle and attaches it to a GitHub Release.
+# Only apps/extension ships this way; apps/web deploys separately on Vercel.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build and attach the bundle to (e.g. v0.1.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      # The repo pins `packageManager: pnpm@11.7.0` in the root package.json;
+      # corepack is what makes that pin authoritative.
+      - run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      # A tag whose version does not match the manifest would ship a bundle
+      # Chrome refuses to treat as an update. Fail loudly instead.
+      - name: Check tag matches extension version
+        id: version
+        env:
+          # Via env rather than inline `${{ }}` so the value can never be
+          # interpreted as shell by the runner.
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          case "$TAG" in
+            v[0-9]*) ;;
+            *) echo "::error::Refusing to build ref '$TAG' — expected a v<semver> tag."; exit 1 ;;
+          esac
+          TAG_VERSION="${TAG#v}"
+          PKG_VERSION="$(node -p "require('./apps/extension/package.json').version")"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Tag $TAG implies version $TAG_VERSION but apps/extension/package.json is $PKG_VERSION. Bump the package version, commit, then re-tag."
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$PKG_VERSION" >> "$GITHUB_OUTPUT"
+
+      # The extension's postinstall runs `wxt prepare`, which must happen
+      # before any build.
+      - run: pnpm install --frozen-lockfile
+
+      # `wxt zip` builds first, so there is no separate build step.
+      - name: Build and zip
+        run: pnpm --filter extension zip
+
+      # WXT names the archive after the package (`extension-<version>-chrome.zip`).
+      # Rename at upload time rather than overriding zip.name in wxt.config.ts,
+      # so the extension source stays untouched.
+      - name: Rename bundle
+        id: bundle
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          SRC="apps/extension/.output/extension-${VERSION}-chrome.zip"
+          DEST="dsa-tracker-extension-${TAG}-chrome.zip"
+          test -f "$SRC" || { echo "::error::Expected $SRC to exist"; ls -R apps/extension/.output; exit 1; }
+          mv "$SRC" "$DEST"
+          echo "path=$DEST" >> "$GITHUB_OUTPUT"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          files: ${{ steps.bundle.outputs.path }}
+          generate_release_notes: true
+          body: |
+            ## Install
+
+            1. Download `${{ steps.bundle.outputs.path }}` below and unzip it.
+               `manifest.json` sits at the root of the unzipped folder.
+            2. Open `chrome://extensions` → enable **Developer mode** →
+               **Load unpacked** → select that folder.
+            3. Sign up at https://dsa-tracker-final-web.vercel.app/sign-up and
+               create an extension API key at
+               https://dsa-tracker-final-web.vercel.app/settings.
+            4. Open the extension popup, paste the key, and click **Connect**.
+
+            Chromium browsers only (Chrome, Edge, Brave, Helium). Full
+            instructions: [README](https://github.com/${{ github.repository }}#install-the-extension).
