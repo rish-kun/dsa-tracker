@@ -16,8 +16,7 @@ export default defineConfig({
       '*://geeksforgeeks.org/*',
       '*://www.geeksforgeeks.org/*',
       '*://practice.geeksforgeeks.org/*',
-      'http://localhost/*',
-      'https://*.vercel.app/*',
+      'https://dsa-tracker-final-web.vercel.app/*',
     ],
   },
 });

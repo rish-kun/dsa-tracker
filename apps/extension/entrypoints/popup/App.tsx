@@ -20,9 +20,7 @@ function formatDate(iso: string): string {
 export function App() {
   const [data, setData] = useState<StatsResult | null>(null);
   const [loading, setLoading] = useState(true);
-  const [apiBase, setApiBase] = useState('');
   const [apiKey, setApiKey] = useState('');
-  const [savingBase, setSavingBase] = useState(false);
   const [savingKey, setSavingKey] = useState(false);
   const [backfillMsg, setBackfillMsg] = useState<string | null>(null);
   const [backfilling, setBackfilling] = useState(false);
@@ -39,7 +37,6 @@ export function App() {
       ]);
       setData(res);
       setActiveProblem(current);
-      setApiBase(res.cache.apiBaseUrl);
     } finally {
       // Must clear on rejection too, or Refresh stays disabled forever.
       setLoading(false);
@@ -52,18 +49,6 @@ export function App() {
 
   async function refresh() {
     setBackfillMsg(null);
-    await load();
-  }
-
-  async function saveBase() {
-    setSavingBase(true);
-    try {
-      const cache = await sendMessage({ type: 'SET_API_BASE', baseUrl: apiBase.trim() });
-      setApiBase(cache.apiBaseUrl);
-    } finally {
-      // Must clear on rejection too, or Save stays disabled forever.
-      setSavingBase(false);
-    }
     await load();
   }
 
@@ -91,7 +76,7 @@ export function App() {
   }
 
   async function openDashboard() {
-    const base = data?.cache.apiBaseUrl ?? apiBase;
+    const base = data?.cache.apiBaseUrl;
     if (base) await chrome.tabs.create({ url: base });
   }
 
@@ -258,28 +243,6 @@ export function App() {
         {backfillMsg && <div className="note">{backfillMsg}</div>}
       </section>
 
-      <section className="block">
-        <label className="block-title" htmlFor="api-base-url">
-          API base URL
-        </label>
-        <div className="row">
-          <input
-            id="api-base-url"
-            className="input"
-            value={apiBase}
-            onChange={(e) => setApiBase(e.target.value)}
-            placeholder="http://localhost:3000"
-            spellCheck={false}
-          />
-          <button type="button" className="ghost" onClick={saveBase} disabled={savingBase}>
-            {savingBase ? '…' : 'Save'}
-          </button>
-        </div>
-        <button type="button" className="link" onClick={openDashboard}>
-          Open dashboard →
-        </button>
-      </section>
-
       <section className="block key-block">
         <label className="block-title" htmlFor="api-key">
           Extension API key
@@ -310,6 +273,9 @@ export function App() {
           </button>
         )}
         <div className="note">Create or revoke keys in your tracker’s Settings page.</div>
+        <button type="button" className="link" onClick={openDashboard}>
+          Open dashboard →
+        </button>
       </section>
     </div>
   );

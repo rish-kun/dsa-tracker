@@ -26,7 +26,7 @@ import type { MarkSolvedResult } from '../lib/messaging';
  * owns the local cache of solved keys/totals and a retry queue for offline writes.
  */
 
-const DEFAULT_API_BASE = 'http://localhost:3000';
+const DEFAULT_API_BASE = 'https://dsa-tracker-final-web.vercel.app';
 const REFRESH_ALARM = 'dsa-refresh';
 const REFRESH_MINUTES = 30;
 
@@ -109,9 +109,11 @@ type FlushOutcome = 'ok' | 'retry' | 'unauthorized' | 'missing-key';
 let storageSerial: Promise<void> = Promise.resolve();
 const flushInFlight = new Map<string, Promise<FlushOutcome>>();
 
-function normalizeBase(base?: string): string {
-  const value = base?.trim().replace(/\/+$/, '');
-  return value || DEFAULT_API_BASE;
+function normalizeBase(_base?: string): string {
+  // Roadmap v2 ships against one backend. Keeping SET_API_BASE in the message
+  // union is a compatibility courtesy for older popups, but callers cannot
+  // redirect authenticated extension traffic to an arbitrary origin.
+  return DEFAULT_API_BASE;
 }
 
 async function credentialFingerprint(key: string | null): Promise<string> {
@@ -156,6 +158,30 @@ async function migrateState(): Promise<ExtensionState> {
     // those records in place so a service-worker update cannot reintroduce the
     // in-flight head-removal race.
     let healed = false;
+    const oldActiveId = existing.activeProfileId;
+    const normalizedProfiles: Record<string, ProfileState> = {};
+    for (const [oldId, profile] of Object.entries(existing.profiles)) {
+      const nextId = await profileId(DEFAULT_API_BASE, profile.apiKey);
+      if (oldId !== nextId || profile.apiBaseUrl !== DEFAULT_API_BASE) healed = true;
+      profile.apiBaseUrl = DEFAULT_API_BASE;
+      const prior = normalizedProfiles[nextId];
+      if (!prior) {
+        normalizedProfiles[nextId] = profile;
+      } else {
+        // Two formerly configurable bases can collapse onto the same fixed
+        // base/credential profile. Preserve queued work and inspection history
+        // while keeping only one write per canonical key.
+        const pending = new Map(prior.pending.map((item) => [item.payload.canonicalKey, item]));
+        for (const item of profile.pending) pending.set(item.payload.canonicalKey, item);
+        prior.pending = [...pending.values()].sort((a, b) => a.queuedAt - b.queuedAt);
+        prior.deadLetters = [...prior.deadLetters, ...profile.deadLetters];
+        prior.resolveCache = { ...prior.resolveCache, ...profile.resolveCache };
+        if ((profile.cache.lastSync ?? 0) > (prior.cache.lastSync ?? 0)) prior.cache = profile.cache;
+        if (oldId === oldActiveId) prior.authState = profile.authState;
+      }
+      if (oldId === oldActiveId) existing.activeProfileId = nextId;
+    }
+    existing.profiles = normalizedProfiles;
     for (const profile of Object.values(existing.profiles)) {
       profile.pending = profile.pending.map((item) => {
         if (item.id) return item;
