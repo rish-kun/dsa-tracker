@@ -1,6 +1,6 @@
 'use client';
 
-import { CORE_SET, PHASE_COUNT, RESUME_ITEMS } from '@dsa-tracker/plan-data';
+import { CORE_SET, GOOGLE_REVISION_ALL, PHASE_COUNT, RESUME_ITEMS } from '@dsa-tracker/plan-data';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { BehavioralAiBody } from './behavioral-ai';
@@ -22,6 +22,7 @@ import {
 import { DayStrip } from './day-strip';
 import { daySummaries } from './day-summary';
 import { DsaMethodBody } from './dsa-method';
+import { GoogleRevisionBody, googleRevisionDone } from './google-revision';
 import { PatternInventoryBody } from './pattern-inventory';
 import { PlanRail } from './plan-rail';
 import { RailVitals } from './rail-vitals';
@@ -105,6 +106,7 @@ export function LayoutCockpit(props: Props) {
   const phasesDone = cppPhasesDone(state);
   const resDone = resumeDone(state);
   const coreDoneCount = coreDone(state);
+  const grevDoneCount = googleRevisionDone(state);
 
   const isToday = selected === todayKey;
 
@@ -148,6 +150,7 @@ export function LayoutCockpit(props: Props) {
             cppDone={phasesDone}
             resDone={resDone}
             coreDone={coreDoneCount}
+            grevDone={grevDoneCount}
           />
         </div>
 
@@ -299,6 +302,24 @@ export function LayoutCockpit(props: Props) {
               />
             </div>
             <CoreSetBody state={state} onToggleCheck={onToggleCheck} />
+          </section>
+
+          <section id="plan-grev" className={cn(PANEL, SECTION)}>
+            <div className={PANEL_HEADER}>
+              <h2 className="min-w-0 text-[14px] font-semibold text-[var(--pt-text)]">
+                Google DSA revision — Core 50
+              </h2>
+              <span className="shrink-0 font-mono text-[12px] tabular-nums text-[var(--pt-text-3)]">
+                {grevDoneCount}/{GOOGLE_REVISION_ALL.length}
+              </span>
+            </div>
+            <div className="h-[3px] bg-[var(--pt-border)]">
+              <div
+                className="h-full bg-[var(--pt-violet)] transition-all duration-700"
+                style={{ width: `${(grevDoneCount / GOOGLE_REVISION_ALL.length) * 100}%` }}
+              />
+            </div>
+            <GoogleRevisionBody state={state} onToggleCheck={onToggleCheck} />
           </section>
 
           <section id="plan-patterns" className={cn(PANEL, SECTION)}>

@@ -671,6 +671,176 @@ export const CORE_SET: DsaProblem[] = [
   { name: "LC 79 Word Search",                                   difficulty: "M", category: "revision", canonicalKey:"lc:word-search" },
 ]
 
+/**
+ * One checkable item in the standalone Google DSA revision panel.
+ *
+ * `canonicalKey` is required (unlike DsaProblem, where the 5 Striver entries
+ * legitimately have none): every Core-50 problem maps to LeetCode, so the
+ * revision family never needs a slugify fallback and its id space cannot fork.
+ */
+export type GoogleRevisionProblem = {
+  /** 1-based priority across the whole Core 50 — this IS the order to work it. */
+  priority: number;
+  name: string;
+  difficulty: 'E' | 'M' | 'H';
+  /** 'lc:<titleSlug>' — the sole link to solved_problems. */
+  canonicalKey: string;
+  /** Technique / recall cue shown under the name. */
+  cue?: string;
+}
+
+export type GoogleRevisionPriority = "must" | "should" | "algorithm" | "recognition"
+
+/** A compact concept-recall entry in the reference half of the panel. */
+export type GoogleRevisionConcept = {
+  name: string;
+  /** Recognition cue — what lights the pattern up, not the full skeleton. */
+  tell: string;
+}
+
+/** The two groups the panel renders: the checkable Core 45 and the five extras. */
+export const GOOGLE_REVISION_GROUPS = [
+  { id: 'core', label: 'Core 45', hint: 'the checkable core, in priority order' },
+  { id: 'extras', label: 'Extras', hint: 'five more — same auto-tick rules' },
+] as const
+
+/** Core 45 — items 1–45 of the Core 50, in priority order. */
+export const GOOGLE_REVISION_CORE: GoogleRevisionProblem[] = [
+  { priority: 1,  name: "LC 238 Product of Array Except Self",                difficulty: "M", canonicalKey: "lc:product-of-array-except-self",                            cue: "prefix·suffix, no division" },
+  { priority: 2,  name: "LC 128 Longest Consecutive Sequence",                difficulty: "M", canonicalKey: "lc:longest-consecutive-sequence",                            cue: "hash set of starts" },
+  { priority: 3,  name: "LC 560 Subarray Sum Equals K",                       difficulty: "M", canonicalKey: "lc:subarray-sum-equals-k",                                   cue: "prefix sum + hash" },
+  { priority: 4,  name: "LC 15 3Sum",                                         difficulty: "M", canonicalKey: "lc:3sum",                                                    cue: "sort + two pointers" },
+  { priority: 5,  name: "LC 42 Trapping Rain Water",                          difficulty: "H", canonicalKey: "lc:trapping-rain-water",                                      cue: "two pointers / maxL·maxR" },
+  { priority: 6,  name: "LC 3 Longest Substring Without Repeating Characters", difficulty: "M", canonicalKey: "lc:longest-substring-without-repeating-characters",           cue: "sliding window + set" },
+  { priority: 7,  name: "LC 76 Minimum Window Substring",                     difficulty: "H", canonicalKey: "lc:minimum-window-substring",                                 cue: "sliding window + counts" },
+  { priority: 8,  name: "LC 239 Sliding Window Maximum",                      difficulty: "H", canonicalKey: "lc:sliding-window-maximum",                                  cue: "monotonic deque" },
+  { priority: 9,  name: "LC 33 Search in Rotated Sorted Array",               difficulty: "M", canonicalKey: "lc:search-in-rotated-sorted-array",                          cue: "binary search on rotated" },
+  { priority: 10, name: "LC 875 Koko Eating Bananas",                         difficulty: "M", canonicalKey: "lc:koko-eating-bananas",                                      cue: "binary search on answer" },
+  { priority: 11, name: "LC 1011 Capacity to Ship Packages Within D Days",    difficulty: "M", canonicalKey: "lc:capacity-to-ship-packages-within-d-days",                 cue: "binary search on answer" },
+  { priority: 12, name: "LC 410 Split Array Largest Sum",                     difficulty: "H", canonicalKey: "lc:split-array-largest-sum",                                   cue: "binary search on answer" },
+  { priority: 13, name: "LC 84 Largest Rectangle in Histogram",               difficulty: "H", canonicalKey: "lc:largest-rectangle-in-histogram",                           cue: "monotonic stack" },
+  { priority: 14, name: "LC 739 Daily Temperatures",                          difficulty: "M", canonicalKey: "lc:daily-temperatures",                                        cue: "monotonic stack" },
+  { priority: 15, name: "LC 215 Kth Largest Element in an Array",             difficulty: "M", canonicalKey: "lc:kth-largest-element-in-an-array",                          cue: "heap / quickselect" },
+  { priority: 16, name: "LC 295 Find Median From Data Stream",                difficulty: "H", canonicalKey: "lc:find-median-from-data-stream",                              cue: "two heaps" },
+  { priority: 17, name: "LC 23 Merge K Sorted Lists",                         difficulty: "H", canonicalKey: "lc:merge-k-sorted-lists",                                     cue: "heap merge" },
+  { priority: 18, name: "LC 56 Merge Intervals",                              difficulty: "M", canonicalKey: "lc:merge-intervals",                                          cue: "sort by start" },
+  { priority: 19, name: "LC 435 Non-overlapping Intervals",                   difficulty: "M", canonicalKey: "lc:non-overlapping-intervals",                               cue: "greedy by end" },
+  { priority: 20, name: "LC 102 Binary Tree Level Order Traversal",           difficulty: "M", canonicalKey: "lc:binary-tree-level-order-traversal",                      cue: "BFS level_size" },
+  { priority: 21, name: "LC 543 Diameter of Binary Tree",                     difficulty: "E", canonicalKey: "lc:diameter-of-binary-tree",                                 cue: "DFS return height" },
+  { priority: 22, name: "LC 236 Lowest Common Ancestor of a Binary Tree",     difficulty: "M", canonicalKey: "lc:lowest-common-ancestor-of-a-binary-tree",                 cue: "DFS left/right/mid" },
+  { priority: 23, name: "LC 98 Validate Binary Search Tree",                  difficulty: "M", canonicalKey: "lc:validate-binary-search-tree",                             cue: "DFS with bounds" },
+  { priority: 24, name: "LC 230 Kth Smallest Element in a BST",               difficulty: "M", canonicalKey: "lc:kth-smallest-element-in-a-bst",                            cue: "inorder / follow" },
+  { priority: 25, name: "LC 124 Binary Tree Maximum Path Sum",                difficulty: "H", canonicalKey: "lc:binary-tree-maximum-path-sum",                            cue: "DFS gain" },
+  { priority: 26, name: "LC 863 All Nodes Distance K in Binary Tree",         difficulty: "M", canonicalKey: "lc:all-nodes-distance-k-in-binary-tree",                    cue: "tree→graph + BFS" },
+  { priority: 27, name: "LC 297 Serialize and Deserialize Binary Tree",       difficulty: "H", canonicalKey: "lc:serialize-and-deserialize-binary-tree",                  cue: "preorder + queue" },
+  { priority: 28, name: "LC 200 Number of Islands",                           difficulty: "M", canonicalKey: "lc:number-of-islands",                                       cue: "grid DFS/BFS" },
+  { priority: 29, name: "LC 994 Rotting Oranges",                             difficulty: "M", canonicalKey: "lc:rotting-oranges",                                         cue: "multi-source BFS" },
+  { priority: 30, name: "LC 127 Word Ladder",                                 difficulty: "H", canonicalKey: "lc:word-ladder",                                             cue: "BFS + patterns" },
+  { priority: 31, name: "LC 207 Course Schedule",                             difficulty: "M", canonicalKey: "lc:course-schedule",                                         cue: "DFS cycle / topo" },
+  { priority: 32, name: "LC 210 Course Schedule II",                          difficulty: "M", canonicalKey: "lc:course-schedule-ii",                                      cue: "Kahn topo" },
+  { priority: 33, name: "LC 785 Is Graph Bipartite",                          difficulty: "M", canonicalKey: "lc:is-graph-bipartite",                                      cue: "2-color BFS/DFS" },
+  { priority: 34, name: "LC 684 Redundant Connection",                        difficulty: "M", canonicalKey: "lc:redundant-connection",                                    cue: "DSU" },
+  { priority: 35, name: "LC 743 Network Delay Time",                          difficulty: "M", canonicalKey: "lc:network-delay-time",                                      cue: "Dijkstra" },
+  { priority: 36, name: "LC 778 Swim in Rising Water",                        difficulty: "H", canonicalKey: "lc:swim-in-rising-water",                                    cue: "Dijkstra / binary search" },
+  { priority: 37, name: "LC 1584 Min Cost to Connect All Points",             difficulty: "M", canonicalKey: "lc:min-cost-to-connect-all-points",                          cue: "MST (Prim/Kruskal)" },
+  { priority: 38, name: "LC 399 Evaluate Division",                           difficulty: "M", canonicalKey: "lc:evaluate-division",                                       cue: "graph + BFS/DFS / DSU" },
+  { priority: 39, name: "LC 78 Subsets",                                      difficulty: "M", canonicalKey: "lc:subsets",                                                 cue: "backtracking" },
+  { priority: 40, name: "LC 39 Combination Sum",                              difficulty: "M", canonicalKey: "lc:combination-sum",                                         cue: "backtracking" },
+  { priority: 41, name: "LC 79 Word Search",                                  difficulty: "M", canonicalKey: "lc:word-search",                                             cue: "backtracking + grid" },
+  { priority: 42, name: "LC 208 Implement Trie",                              difficulty: "M", canonicalKey: "lc:implement-trie-prefix-tree",                              cue: "trie" },
+  { priority: 43, name: "LC 1368 Minimum Cost to Make at Least One Valid Path in a Grid", difficulty: "H", canonicalKey: "lc:minimum-cost-to-make-at-least-one-valid-path-in-a-grid", cue: "0-1 BFS" },
+  { priority: 44, name: "LC 1192 Critical Connections in a Network",          difficulty: "H", canonicalKey: "lc:critical-connections-in-a-network",                       cue: "Tarjan bridges" },
+  { priority: 45, name: "LC 332 Reconstruct Itinerary",                       difficulty: "H", canonicalKey: "lc:reconstruct-itinerary",                                  cue: "Hierholzer Eulerian" },
+]
+
+/** Extras — items 46–50. Same auto-tick / override rules as the Core 45. */
+export const GOOGLE_REVISION_EXTRAS: GoogleRevisionProblem[] = [
+  { priority: 46, name: "LC 287 Find the Duplicate Number",                   difficulty: "M", canonicalKey: "lc:find-the-duplicate-number",                            cue: "Floyd cycle" },
+  { priority: 47, name: "LC 417 Pacific Atlantic Water Flow",                 difficulty: "M", canonicalKey: "lc:pacific-atlantic-water-flow",                          cue: "multi-source BFS/DFS" },
+  { priority: 48, name: "LC 721 Accounts Merge",                              difficulty: "M", canonicalKey: "lc:accounts-merge",                                          cue: "DSU" },
+  { priority: 49, name: "LC 2251 Number of Flowers in Full Bloom",            difficulty: "H", canonicalKey: "lc:number-of-flowers-in-full-bloom",                       cue: "sweep line / binary search" },
+  { priority: 50, name: "LC 307 Range Sum Query Mutable",                     difficulty: "M", canonicalKey: "lc:range-sum-query-mutable",                                cue: "Fenwick / segment tree" },
+]
+
+/** Core 45 + extras, flattened for the auto-tick pass and the done count. */
+export const GOOGLE_REVISION_ALL: GoogleRevisionProblem[] = [
+  ...GOOGLE_REVISION_CORE,
+  ...GOOGLE_REVISION_EXTRAS,
+]
+
+/** Priority labels from the supplied revision list. */
+export function googleRevisionTier(priority: number): GoogleRevisionPriority {
+  if ([12, 27, 38, 43, 44, 45, 46, 47, 48].includes(priority)) return "should"
+  if ([49, 50].includes(priority)) return "algorithm"
+  return "must"
+}
+
+export type GoogleRevisionConceptGroup = GoogleRevisionConcept & {
+  items: GoogleRevisionProblem[]
+}
+
+function revisionItems(...priorities: number[]): GoogleRevisionProblem[] {
+  return priorities.map((priority) => GOOGLE_REVISION_ALL[priority - 1])
+}
+
+/** The checkable problems grouped by the concept they are meant to retrieve. */
+export const GOOGLE_REVISION_CONCEPT_GROUPS: GoogleRevisionConceptGroup[] = [
+  { name: "Arrays + hashing", tell: "prefix/suffix, prefix state, membership", items: revisionItems(1, 2, 3) },
+  { name: "Two pointers", tell: "sort, scan from both ends, preserve invariants", items: revisionItems(4, 5) },
+  { name: "Sliding window + deque", tell: "fixed/variable windows and monotonic candidates", items: revisionItems(6, 7, 8) },
+  { name: "Binary search", tell: "boundaries, rotated arrays, monotonic answer predicates", items: revisionItems(9, 10, 11, 12) },
+  { name: "Monotonic stack", tell: "nearest greater/smaller and span", items: revisionItems(13, 14) },
+  { name: "Heap + priority queue", tell: "top-k, k-way merge, two-heap median", items: revisionItems(15, 16, 17) },
+  { name: "Intervals + greedy", tell: "sort by start to merge, by end to keep the most", items: revisionItems(18, 19) },
+  { name: "Trees", tell: "return information from children, BST invariants, tree-to-graph", items: revisionItems(20, 21, 22, 23, 24, 25, 26, 27) },
+  { name: "Grids + traversal", tell: "visited discipline, multi-source BFS, reverse reachability", items: revisionItems(28, 29, 47) },
+  { name: "Graph dependencies + DSU", tell: "topological order, coloring, connectivity", items: revisionItems(30, 31, 32, 33, 34, 48) },
+  { name: "Shortest paths + MST", tell: "Dijkstra, 0-1 BFS, Prim/Kruskal", items: revisionItems(35, 36, 37, 38, 43) },
+  { name: "Backtracking + trie", tell: "choose, explore, undo; prefix pruning", items: revisionItems(39, 40, 41, 42) },
+  { name: "Advanced graph algorithms", tell: "Floyd cycle, Tarjan bridges, Eulerian traversal", items: revisionItems(44, 45, 46) },
+  { name: "Sweep line + range structures", tell: "ordered events, Fenwick/segment tree exposure", items: revisionItems(49, 50) },
+]
+
+/**
+ * The broader algorithm recall, preserved from the supplied concept list as a
+ * compact reference. Not checkable — this is the "recognise the pattern" half of
+ * the panel, while the Core 50 above is the "prove you can still write it" half.
+ */
+export const GOOGLE_REVISION_CONCEPTS: GoogleRevisionConcept[] = [
+  { name: "Arrays & hash",            tell: "seen-before / count / group / complement; prefix sums for range and subarray-sum-to-k" },
+  { name: "Two pointers",             tell: "opposite ends on sorted arrays; fast–slow for list cycle / midpoint / nth-from-end" },
+  { name: "Sliding window",           tell: "contiguous + optimum + monotone validity; fixed k; negatives → prefix sums" },
+  { name: "Binary search",            tell: "bounds (first/last) on sorted; search-on-answer with an isFeasible helper" },
+  { name: "Sorting & quickselect",    tell: "nth order statistic via partition; O(n) average, O(1) extra" },
+  { name: "Intervals & greedy",       tell: "sort-by-start to merge, sort-by-end to maximise non-overlap; strict < comparator" },
+  { name: "Stacks",                   tell: "balanced / evaluate; LIFO structure for undo-style problems" },
+  { name: "Monotonic stack / deque",  tell: "next-greater / prev-smaller, histogram; window max in O(1) amortised" },
+  { name: "Heaps",                    tell: "top-k, merge-k, running median with two heaps; greater<> gives a MIN-heap" },
+  { name: "Linked lists & Floyd",     tell: "cycle detection, entry point, duplicate-number trick" },
+  { name: "Trees & tree-to-graph",    tell: "add parent pointers, then BFS out — distance-k, burn-tree" },
+  { name: "Graph DFS/BFS & multi-source", tell: "components, shortest unweighted; seed all sources at once" },
+  { name: "Directed / undirected cycle", tell: "3-state DFS, DSU, or topo size check" },
+  { name: "Topo / Kahn",              tell: "indegree queue; processed < n ⇔ cycle" },
+  { name: "Bipartite",                tell: "2-coloring, no same-colour neighbours" },
+  { name: "DSU",                      tell: "union by size + path compression, ~O(1) amortised" },
+  { name: "Dijkstra",                 tell: "non-negative weights, min-heap of (dist, node)" },
+  { name: "0-1 BFS",                  tell: "0/1 edge weights — deque, push front on 0" },
+  { name: "Bellman-Ford",             tell: "k-stops / negative weights, relax |V|−1 times" },
+  { name: "Floyd-Warshall",           tell: "all-pairs, O(V³)" },
+  { name: "MST",                      tell: "Prim (heap) or Kruskal (DSU) on min-cost connect" },
+  { name: "SCC",                      tell: "Kosaraju / Tarjan on strongly connected components" },
+  { name: "Tarjan",                   tell: "bridges / articulation via disc-low" },
+  { name: "Eulerian",                 tell: "Hierholzer — build itinerary from Euler path" },
+  { name: "Backtracking",             tell: "choose → explore → un-choose; subsets / permutations / combinations" },
+  { name: "Trie",                     tell: "prefix queries, autocomplete, wildcard word search" },
+  { name: "Sweep line",               tell: "sort events, maintain an active set" },
+  { name: "Fenwick",                  tell: "prefix sums with point updates" },
+  { name: "Segment tree",             tell: "range queries + updates, lazy where needed" },
+  { name: "Bits",                     tell: "xor tricks, masks, powers of two" },
+  { name: "KMP / Z / rolling hash",   tell: "pattern matching in O(n+m)" },
+  { name: "Basic DP",                 tell: "1D/2D/knapsack, LIS / LCS, memoise the state that repeats" },
+]
+
 export const TAG_LABELS: Record<Tag, string> = {
   dsa: "DSA",
   cpp: "C++",
@@ -700,6 +870,10 @@ export const checkId = {
     `prob:${date}:${p.canonicalKey ?? slugify(p.name)}`,
   // CORE_SET family — same "never a template literal elsewhere" rule as the rest.
   core: (p: DsaProblem) => `core:${p.canonicalKey ?? slugify(p.name)}`,
+  // Google revision family — every item is LeetCode-mappable, so canonicalKey is
+  // required and there is no slugify fallback to fork the id space on.
+  googleRevision: (p: GoogleRevisionProblem) => `grev:${p.canonicalKey}`,
+  googleRevisionKey: (canonicalKey: string) => `grev:${canonicalKey}`,
   phase: (p: PhaseEntry) => `phase:${slugify(p.name)}`,
   resume: (text: string) => `resume:${slugify(text).slice(0, 48)}`,
 }
@@ -713,7 +887,7 @@ export const checkId = {
  * Keys are `lc:<titleSlug>`, and leetcode.com/problems/<titleSlug>/ is the
  * canonical problem URL, so this is a pure string derivation — no lookup.
  */
-export function problemUrl(p: DsaProblem): string | null {
+export function problemUrl(p: { canonicalKey?: string }): string | null {
   const key = p.canonicalKey
   if (!key || !key.startsWith("lc:")) return null
   return `https://leetcode.com/problems/${key.slice(3)}/`

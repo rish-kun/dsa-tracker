@@ -5,6 +5,7 @@ import type {
   Totals,
 } from '@dsa-tracker/shared';
 import { and, desc, eq, or, sql } from 'drizzle-orm';
+import { checkId } from '@dsa-tracker/plan-data';
 import { db, planChecks, problems, solvedProblems, solveEvents } from '@/db';
 
 type SolvedRow = typeof solvedProblems.$inferSelect;
@@ -284,11 +285,21 @@ export async function recordSolve(userId: string, req: SolveRequest): Promise<{
 
     // A manual false override may intentionally hide an older derived solve,
     // but a fresh live solve should win. Match every dated plan occurrence of
-    // the final server-authoritative key; bulk history must not clear overrides.
+    // the final server-authoritative key plus the Google-revision family; bulk
+    // history (backfill) must not clear overrides.
     if (req.detected !== 'backfill') {
       await tx
         .delete(planChecks)
-        .where(and(eq(planChecks.userId, userId), sql`${planChecks.done} = false and ${planChecks.checkId} like ${`prob:%:${canonicalKey}`}`));
+        .where(
+          and(
+            eq(planChecks.userId, userId),
+            sql`${planChecks.done} = false`,
+            or(
+              sql`${planChecks.checkId} like ${`prob:%:${canonicalKey}`}`,
+              eq(planChecks.checkId, checkId.googleRevisionKey(canonicalKey)),
+            ),
+          ),
+        );
     }
 
     // Authoritative row and its first-source URL in one statement. Previously

@@ -1,6 +1,6 @@
 'use client';
 
-import { CORE_SET, DAYS, PHASE_COUNT, RESUME_ITEMS, WEEKS } from '@dsa-tracker/plan-data';
+import { CORE_SET, DAYS, GOOGLE_REVISION_ALL, PHASE_COUNT, RESUME_ITEMS, WEEKS } from '@dsa-tracker/plan-data';
 import { useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import type { DaySummary } from './day-summary';
@@ -24,13 +24,14 @@ export type RefEntry = {
   meta?: string;
 };
 
-export function refEntries(cppDone: number, resDone: number, coreDone: number): RefEntry[] {
+export function refEntries(cppDone: number, resDone: number, coreDone: number, grevDone: number): RefEntry[] {
   return [
     { id: 'plan-cpp', label: 'Google prep phases', meta: `${cppDone}/${PHASE_COUNT}` },
     { id: 'plan-schedule', label: 'Full schedule', meta: `${DAYS.length} days` },
     { id: 'plan-method', label: 'DSA method' },
     { id: 'plan-resume', label: 'Interview-day checklist', meta: `${resDone}/${RESUME_ITEMS.length}` },
     { id: 'plan-core', label: 'Core set — 20', meta: `${coreDone}/${CORE_SET.length}` },
+    { id: 'plan-grev', label: 'Google DSA revision', meta: `${grevDone}/${GOOGLE_REVISION_ALL.length}` },
     { id: 'plan-patterns', label: 'Pattern inventory' },
     { id: 'plan-gotchas', label: 'C++ gotchas' },
     { id: 'plan-protocol', label: 'Execution protocol' },
@@ -48,13 +49,14 @@ type Props = {
   cppDone: number;
   resDone: number;
   coreDone: number;
+  grevDone: number;
 };
 
-export function PlanRail({ summaries, selectedDate, onSelect, cppDone, resDone, coreDone }: Props) {
+export function PlanRail({ summaries, selectedDate, onSelect, cppDone, resDone, coreDone, grevDone }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
   const todayRef = useRef<HTMLButtonElement>(null);
 
-  const refs = refEntries(cppDone, resDone, coreDone);
+  const refs = refEntries(cppDone, resDone, coreDone, grevDone);
 
   // Centre today on mount and on day rollover. scrollTop directly, NOT
   // scrollIntoView — that walks ancestors and would scroll the whole page.

@@ -1,6 +1,7 @@
 import {
   CORE_SET,
   DAYS,
+  GOOGLE_REVISION_ALL,
   NEETCODE_150_KEYS,
   PHASES,
   checkId,
@@ -63,6 +64,11 @@ function deriveAutoSolved(solvedKeys: Set<string>): Record<string, boolean> {
   for (const problem of CORE_SET) {
     if (problem.canonicalKey && solvedKeys.has(problem.canonicalKey)) {
       autoSolved[checkId.core(problem)] = true;
+    }
+  }
+  for (const problem of GOOGLE_REVISION_ALL) {
+    if (solvedKeys.has(problem.canonicalKey)) {
+      autoSolved[checkId.googleRevision(problem)] = true;
     }
   }
   return autoSolved;
