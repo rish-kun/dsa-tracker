@@ -1,6 +1,7 @@
 import { ActivityHeatmap } from '@/components/ActivityHeatmap';
 import { DifficultyBar } from '@/components/DifficultyBar';
 import { EmptyState } from '@/components/EmptyState';
+import { ExtensionSetupNotice } from '@/components/ExtensionSetupNotice';
 import { HeroStats } from '@/components/HeroStats';
 import { RecentList } from '@/components/RecentList';
 import { RecordsPanel } from '@/components/RecordsPanel';
@@ -11,6 +12,7 @@ import { StreakPanel } from '@/components/StreakPanel';
 import { WeeklyPacePanel } from '@/components/WeeklyPacePanel';
 import { getDashboardExtras, getDashboardStats } from '@/lib/dashboard-stats';
 import { requireUser } from '@/lib/auth';
+import { getExtensionStatus } from '@/lib/extension-status';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,6 +22,8 @@ export default async function DashboardPage() {
   // concurrent fan-out stalls the Supabase transaction pooler.
   const stats = await getDashboardStats(userId);
   const extras = await getDashboardExtras(userId);
+  // Clerk, not Postgres — so it does not contend with the `max: 1` client above.
+  const extensionStatus = await getExtensionStatus(userId);
   const isEmpty = stats.totals.lcUnique === 0 && stats.totals.other === 0;
 
   let running = 0;
@@ -30,6 +34,7 @@ export default async function DashboardPage() {
 
   return (
     <main className="page">
+      <ExtensionSetupNotice status={extensionStatus} />
       <HeroStats totals={stats.totals} />
 
       {isEmpty ? (
