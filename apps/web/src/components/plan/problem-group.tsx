@@ -7,14 +7,14 @@ import type { PlanViewState } from './types';
 /* ────────────────────────────────────────────────────────────────────────────
  * The single implementation of the "DSA problems, grouped by category" UI.
  *
- * `TodayHero` (one day) and `Schedule` (all 26 days) both render it and must
+ * `TodayHero` (one day) and `Schedule` (all 34 days) both render it and must
  * stay visually indistinguishable — they used to hold byte-identical copies of
  * everything below, which survived exactly as long as nobody edited either
  * file. Anything shared by both lives here now; anything only one of them has
  * (Schedule's TODAY badge, milestone chip, past-day dimming) stays there.
  *
  * What this module deliberately does NOT own is the accordion *state*. The two
- * callers key it differently — Schedule by `${date}:${cat}` because 26 days
+ * callers key it differently — Schedule by `${date}:${cat}` because 34 days
  * render at once and opening one day's "New" must not open every day's,
  * TodayHero by the bare category because only one day exists — so `open` and
  * `onToggleOpen` are props.
@@ -60,7 +60,7 @@ export const CATEGORY_META: Record<DsaCategory, CategoryMeta> = {
   },
   stretch: {
     label: 'Stretch',
-    desc: 'Hards — skip on heavy C++ days',
+    desc: 'Hards — skip on heavy OA days',
     badge: 'bg-[var(--pt-amber-bg)] text-[var(--pt-amber)]',
     box: 'border-[var(--pt-amber)] bg-[var(--pt-amber)] text-[var(--pt-bg)]',
     autoBox: 'border-[var(--pt-amber)] bg-[var(--pt-amber-bg)] text-[var(--pt-amber)]',
@@ -349,7 +349,7 @@ export function ProblemCategoryGroup({
           {meta.label}
         </span>
         {/* `truncate` keeps this hint on one line: at 360px the badge + counter
-            + chevron leave it ~90px, and wrapping "Hards — skip on heavy C++
+            + chevron leave it ~90px, and wrapping "Hards — skip on heavy OA
             days" turned every category header into three lines. It never
             truncates from `sm` up. */}
         <span className="flex-1 truncate text-[12px] text-[var(--pt-text-2)]">{meta.desc}</span>

@@ -74,7 +74,7 @@ export const FLOOR_PILLS: {
   },
   {
     key: 'cpp',
-    label: '1 C++ task touched',
+    label: 'C++ drill touched',
     on: 'border-[color-mix(in_srgb,var(--pt-green)_50%,transparent)] bg-[var(--pt-green-bg)] text-[var(--pt-green-ink)]',
     dot: 'bg-[var(--pt-green)]',
   },

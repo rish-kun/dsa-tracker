@@ -13,8 +13,10 @@ import { resolve } from 'node:path';
 
 const PLAN_DATA = resolve(__dirname, '../../../packages/plan-data/src/index.ts');
 
-const EXPECTED_TOTAL = 72;
-const EXPECTED_RESOLVED = 67;
+// 150 in DAYS (72 original + 78 added for the Google prep block) + 20 in
+// CORE_SET — all carry an `LC <n>` prefix, so the 5 skipped stay the 5 (Striver) rows.
+const EXPECTED_TOTAL = 170;
+const EXPECTED_RESOLVED = 165;
 const EXPECTED_SKIPPED = 5;
 
 /** ID space canaries — if these shift, the catalog is not what we think it is. */

@@ -1,4 +1,5 @@
 import {
+  CORE_SET,
   DAYS,
   NEETCODE_150_KEYS,
   PHASES,
@@ -17,11 +18,16 @@ export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
   title: 'Plan — DSA Tracker',
-  description: 'Day-by-day prep plan: DSA counters, C++ phases, daily floor, and resume checklist.',
+  description: 'Day-by-day prep plan: DSA counters, prep phases, daily floor, and interview-day checklist.',
 };
 
-/** OA season opens on this date; the rail counts down to it. */
-const OA_DATE_KEY = '2026-08-01';
+/**
+ * The rail counts down to this date. Was the 2026-08-01 OA-season opener until
+ * 2026-08-14; now the Google interview, which is the next real deadline.
+ * `daysUntil` floors at 0, so leaving a past date here silently renders
+ * `0.0 q/day · 0d left` forever.
+ */
+const OA_DATE_KEY = '2026-08-21';
 
 /** Exact membership boundary for the NeetCode 150 progress meter. */
 const NEETCODE_150_KEY_SET = new Set<string>(NEETCODE_150_KEYS);
@@ -52,6 +58,11 @@ function deriveAutoSolved(solvedKeys: Set<string>): Record<string, boolean> {
       if (problem.canonicalKey && solvedKeys.has(problem.canonicalKey)) {
         autoSolved[checkId.problem(day.date, problem)] = true;
       }
+    }
+  }
+  for (const problem of CORE_SET) {
+    if (problem.canonicalKey && solvedKeys.has(problem.canonicalKey)) {
+      autoSolved[checkId.core(problem)] = true;
     }
   }
   return autoSolved;

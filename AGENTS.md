@@ -15,7 +15,7 @@ every page via `apps/web/proxy.ts`; `/api/*` authenticates opaque **scoped**
 bearer API keys minted at `/settings`; every user-owned table is
 `user_id`-scoped with RLS enabled. Never write a new route, query or table that
 skips this — see **Auth model** below. A merged-in second app adds a `/plan`
-route: a hardcoded 26-day study plan whose LeetCode items auto-tick from the
+route: a hardcoded 34-day study plan whose LeetCode items auto-tick from the
 same `solved_problems` table. `/plan` is the one surface additionally
 restricted to a single account (`PLAN_OWNER_EMAIL`); the rest of the app is
 per-user.
@@ -65,13 +65,24 @@ Four workspaces (`pnpm-workspace.yaml` globs `apps/*` + `packages/*`, so new
 packages need no config change): `apps/web` (Next.js 16 App Router — `/`
 dashboard (`app/page.tsx`), `/plan` tracker (`app/plan/page.tsx`), `/problems`
 table (`app/problems/page.tsx`), `/settings` (`app/settings/page.tsx`,
-extension API key management) and the Clerk catch-alls
+extension API key management), `/setup` (`app/setup/page.tsx`, the extension
+install walkthrough) and the Clerk catch-alls
 `/sign-in/[[...sign-in]]` + `/sign-up/[[...sign-up]]` — plus all 7 API routes
 and the Drizzle schema), `apps/extension` (WXT +
+
+**Onboarding.** `<SignUp forceRedirectUrl="/setup">` sends every new account to
+the walkthrough instead of an empty dashboard. The dashboard renders
+`ExtensionSetupNotice` until the extension has actually called the API once.
+**A web page cannot detect this extension** — no `web_accessible_resources`, not
+in `externally_connectable` — so `src/lib/extension-status.ts` uses the only
+observable proxy: a scoped Clerk key that exists but has a null `lastUsedAt`
+means minted-but-never-connected. Like the `/plan` reads it never throws; on a
+Clerk error it reports `connected`, which renders nothing (a missing nudge beats
+a false one).
 React), `packages/shared` (pure TS types exported as raw source, transpiled by
 each consumer — it is the API contract *and* the extension's internal message
 protocol; change shapes here first), and `packages/plan-data` (the hardcoded
-26-day curriculum — see below).
+34-day curriculum — see below).
 
 Data flow (extension side): content script detects the current problem →
 `chrome.runtime.sendMessage` → **service worker** → Next.js API → Postgres.
@@ -195,26 +206,53 @@ app. The plan half adds:
 TypeScript. There is no DB seed and no CMS for it; editing the plan means
 editing that file. It exports:
 
-- `DAYS` (26 `DayEntry`), `PHASES` (7 `PhaseEntry`), `WEEKS` (6 groupings that
-  index into `DAYS`), `RESUME_ITEMS` (6 strings), `TAG_LABELS`
+- `DAYS` (34 `DayEntry`), `PHASES` (7 `PhaseEntry`), `WEEKS` (8 groupings that
+  index into `DAYS`), `RESUME_ITEMS` (10 strings), `TAG_LABELS`
 - `PHASE_COUNT = PHASES.length` — use it instead of hardcoding `7`
-- `checkId`, `slugify`, `localDateKey`, `NEETCODE_150_KEYS`
+- `checkId`, `slugify`, `localDateKey`, `NEETCODE_150_KEYS`, `CORE_SET`
 - types `Tag`, `DsaCategory`, `DayTask`, `DsaProblem`, `DayEntry`, `PhaseEntry`
 
-`DAYS` carries **72 problems total; 67 have a `canonicalKey`** (`lc:<slug>`,
+`DAYS` carries **150 problems total; 145 have a `canonicalKey`** (`lc:<slug>`,
 populated by `scripts/resolve-plan-keys.ts`). The 5 exceptions are the
 `(Striver)` entries — they have no LeetCode equivalent, so they can never
-auto-tick and are hand-tick only. `canonicalKey` is the *only* link between the
-plan and `solved_problems`.
+auto-tick and are hand-tick only. `CORE_SET` is a separate 20-problem fallback
+list ("if a day collapses, do these in order") — also canonical-keyed and
+auto-ticking, but under its own id family (`checkId.core`, i.e. `core:<slug>`),
+distinct from any day's `prob:` rows. `canonicalKey` is the *only* link between
+the plan and `solved_problems`.
+
+**The Google-prep block (appended 2026-08-14).** `DAYS[26..33]` are
+`2026-08-14`..`2026-08-21`: a 7-day interview run-up plus the interview day
+itself (Google, Fri 21 Aug 2026). That append also **repurposed two constants
+wholesale**, which orphaned their old `plan_checks` rows rather than migrating
+them:
+
+- `PHASES` was the 7 finished C++ semantic-cache project phases; it is now the
+  7 prep days. `checkId.phase` is a name slug, so the old `phase:*` rows still
+  exist in the DB but match nothing.
+- `RESUME_ITEMS` was 6 resume-editing chores (the resume froze Jul 30); it is
+  now 10 interview-day logistics items. Same orphaning via `resume:*`.
+- `apps/web/scripts/migrate-neon-plan.ts` remaps legacy ids **positionally**
+  (`p${i}` → `PHASES[i]`, `r${i}` → `RESUME_ITEMS[i]`). Those two remaps are
+  invalid after this swap — do not re-run them.
+- The `cpp` tag now means "C++ written in a plain doc with no compiler", not
+  the cache project. `TAG_LABELS.cpp` is still `"C++"`, so no UI change.
+- **`WEEKS` must partition every `DAYS` index exactly once**: `schedule.tsx`
+  and `plan-rail.tsx` iterate `WEEKS`, so a day belonging to no group renders
+  nowhere at all. Appending days without adding a group silently hides them.
+- `OA_DATE_KEY` in `app/plan/page.tsx` is the rail's countdown target and is
+  now `2026-08-21`. `daysUntil` floors at 0, so a past date there renders
+  `0.0 q/day · 0d left` forever rather than failing.
 
 **`checkId` is the SOLE constructor of check ids.** `packages/plan-data`
-exports `checkId.task/problem/phase/resume`; nothing else in the codebase may
+exports `checkId.task/problem/core/phase/resume`; nothing else in the codebase may
 build one — **never a template literal**, or the id space silently forks
 between writer and reader:
 
 ```ts
 checkId.task(date, i)     // `task:${date}:${i}`  — i = index in that day's tasks[]
 checkId.problem(date, p)  // `prob:${date}:${p.canonicalKey ?? slugify(p.name)}`
+checkId.core(p)           // `core:${p.canonicalKey ?? slugify(p.name)}` — CORE_SET rows
 checkId.phase(p)          // `phase:${slugify(p.name)}`
 checkId.resume(text)      // `resume:${slugify(text).slice(0, 48)}`
 ```

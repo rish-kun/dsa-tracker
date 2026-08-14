@@ -10,7 +10,7 @@ type Props = {
   onToggleCheck: (id: string, val: boolean) => void;
 };
 
-/** Resume items ticked, counted the one legal way. */
+/** Interview-day logistics items ticked, counted the one legal way. */
 export function resumeDone(state: PlanViewState): number {
   // IDs come from checkId.resume — never a positional `r${i}`.
   return RESUME_ITEMS.filter((item) => state.checks[checkId.resume(item)]).length;
@@ -24,7 +24,9 @@ export function ResumeChecklist({ state, onToggleCheck }: Props) {
   return (
     <section className="mb-6 overflow-hidden rounded-[10px] border border-[var(--pt-border)] bg-[var(--pt-surface)] shadow-[var(--pt-shadow-panel)]">
       <div className="flex items-center justify-between gap-3 border-b border-[var(--pt-border)] bg-[var(--pt-surface-raised)] px-4 py-3.5 sm:gap-4 sm:px-5">
-        <h2 className="min-w-0 text-[14px] font-semibold text-[var(--pt-text)]">Resume checklist</h2>
+        <h2 className="min-w-0 text-[14px] font-semibold text-[var(--pt-text)]">
+          Interview-day checklist
+        </h2>
         <span
           className={cn(
             'shrink-0 font-mono text-[12px] tabular-nums',
@@ -48,7 +50,7 @@ export function ResumeChecklist({ state, onToggleCheck }: Props) {
   );
 }
 
-/** The six rows without the section chrome (header bar and 3px progress bar). */
+/** The ten logistics rows without the section chrome (header bar and 3px progress bar). */
 export function ResumeChecklistBody({ state, onToggleCheck }: Props) {
   return (
     <div className="p-4">

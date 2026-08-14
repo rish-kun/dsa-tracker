@@ -17,11 +17,12 @@ const METHOD_CARDS: MethodCard[] = [
     accentBar: 'bg-[var(--pt-blue)]',
     content: (
       <>
-        <span className="font-semibold text-[var(--pt-blue)]">Phase 1 · Jul 20–24</span> Google-OA
-        breadth (easy–medium, outside NC150): arrays/prefix-suffix · strings/hashing · greedy/stack ·
-        sliding window · grid+DSU+light DP.{' '}
-        <span className="font-semibold text-[var(--pt-violet)]">Phase 2 · Jul 26, 29</span> weak
-        areas: adv DP · shortest paths/bridges/DSU · two-heap. 5 new problems/day + revision slot.
+        <span className="font-semibold text-[var(--pt-blue)]">Phase 1 · Aug 14–17</span> Trees then
+        graphs: recursion mechanics · BST/LCA/reconstruction · BFS/DFS and grids · topo sort and
+        union-find.{' '}
+        <span className="font-semibold text-[var(--pt-violet)]">Phase 2 · Aug 18–20</span>{' '}
+        backtracking/stacks/heaps · binary search on answer · intervals, then a consolidation day.
+        Template drill + must-do problems + a no-IDE rep, every day.
       </>
     ),
   },
@@ -34,7 +35,7 @@ const METHOD_CARDS: MethodCard[] = [
         <strong>New</strong> (counts toward 300, non-NC150) + <strong>Revision</strong> (NC150
         classics, breadth refresh — trees → linked lists → backtracking → heaps → trie) +{' '}
         <strong>Stretch</strong> (Hards: Fenwick · trie · sweep line · bitmask BFS · digit DP — bonus
-        only, skip on heavy-C++ days).
+        only, skip on heavy-OA days).
       </>
     ),
   },
@@ -45,10 +46,10 @@ const METHOD_CARDS: MethodCard[] = [
     content: (
       <>
         10-min honest attempt → editorial only if stuck → <u>type it yourself</u> → flag it →
-        re-solve 2–3 days later. Reading ≈ zero retention. Google OA on{' '}
-        <span className="font-semibold text-[var(--pt-rose)]">Jul 25</span> — warmup only that
-        morning; mock OAs{' '}
-        <span className="font-semibold text-[var(--pt-amber)]">Jul 30–31</span>.
+        re-solve 2–3 days later. Reading ≈ zero retention. Google interview on{' '}
+        <span className="font-semibold text-[var(--pt-rose)]">Aug 21</span> — templates only that
+        morning; mocks{' '}
+        <span className="font-semibold text-[var(--pt-amber)]">Aug 15 · 17 · 19</span>.
       </>
     ),
   },

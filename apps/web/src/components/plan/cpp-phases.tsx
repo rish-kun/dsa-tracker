@@ -33,7 +33,7 @@ export function CppPhases({ state, onToggleCheck }: Props) {
       {/* header */}
       <div className="flex items-center justify-between gap-3 border-b border-[var(--pt-border)] bg-[var(--pt-surface-raised)] px-4 py-3.5 sm:gap-4 sm:px-5">
         <h2 className="min-w-0 text-[14px] font-semibold text-[var(--pt-text)]">
-          C++ Semantic Cache
+          Google prep phases
         </h2>
         <span className="shrink-0 font-mono text-[12px] tabular-nums text-[var(--pt-text-3)]">
           {done}/{PHASES.length} complete
@@ -156,10 +156,12 @@ export function TriageNote() {
   return (
     <div className="rounded-md border-l-2 border-l-[var(--pt-rose)] bg-[var(--pt-rose-bg)] px-3.5 py-3 text-[12.5px] leading-relaxed text-[var(--pt-text-2)]">
       <span className="font-semibold text-[var(--pt-rose)]">Triage if behind (cut top-down):</span>{' '}
-      NSW stretch → mmap (plain binary snapshots are fine) → shrink benchmark scope.{' '}
-      <span className="font-semibold text-[var(--pt-text)]">Never cut phases 2–4</span>{' '}
-      (semantic layer · SIMD · eviction) — that trio is the resume story. Concurrency = one
-      std::shared_mutex, nothing more.
+      On a heavy-OA day drop every if-time item and keep, in this order, the template drill → the
+      must-do problems → the no-IDE rep.{' '}
+      <span className="font-semibold text-[var(--pt-text)]">Never sacrifice the template drill</span>{' '}
+      — it is the cheapest, highest-yield block of the day. The three mocks are the least
+      substitutable thing in the plan: if an OA collides with a mock, the mock wins and moves to
+      that morning. Never cut sleep.
     </div>
   );
 }

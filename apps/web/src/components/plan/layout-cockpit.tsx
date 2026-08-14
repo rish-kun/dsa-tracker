@@ -1,9 +1,13 @@
 'use client';
 
-import { PHASE_COUNT, RESUME_ITEMS } from '@dsa-tracker/plan-data';
+import { CORE_SET, PHASE_COUNT, RESUME_ITEMS } from '@dsa-tracker/plan-data';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { BehavioralAiBody } from './behavioral-ai';
+import { CoreSetBody, coreDone } from './core-set';
+import { CppGotchasBody } from './cpp-gotchas';
 import { CppPhasesBody, cppPhasesDone } from './cpp-phases';
+import { ExecutionProtocolBody } from './execution-protocol';
 import {
   DayHeader,
   DayNote,
@@ -18,6 +22,7 @@ import {
 import { DayStrip } from './day-strip';
 import { daySummaries } from './day-summary';
 import { DsaMethodBody } from './dsa-method';
+import { PatternInventoryBody } from './pattern-inventory';
 import { PlanRail } from './plan-rail';
 import { RailVitals } from './rail-vitals';
 import { ResumeChecklistBody, resumeDone } from './resume-checklist';
@@ -30,8 +35,8 @@ import type { PlanLayoutProps } from './types';
  *
  * A sticky rail holds the vitals and every day of the plan; the main column
  * holds the selected day, then the project and reference material expanded
- * below it. The 26-day schedule is navigation, not a section — which is what
- * makes "look ahead at Jul 24" one click instead of 3000px of scrolling.
+ * below it. The 34-day schedule is navigation, not a section — which is what
+ * makes "look ahead at Aug 19" one click instead of 3000px of scrolling.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 const PANEL =
@@ -78,7 +83,7 @@ export function LayoutCockpit(props: Props) {
   };
 
   // Mirror to the URL write-only, outside Next's router. replaceState, not
-  // pushState: 26 history entries would trap the back button on a page that has
+  // pushState: 34 history entries would trap the back button on a page that has
   // one URL, and a router navigation would re-run four sequential DB reads.
   useEffect(() => {
     try {
@@ -99,6 +104,7 @@ export function LayoutCockpit(props: Props) {
   const summaries = useMemo(() => daySummaries(state), [state]);
   const phasesDone = cppPhasesDone(state);
   const resDone = resumeDone(state);
+  const coreDoneCount = coreDone(state);
 
   const isToday = selected === todayKey;
 
@@ -141,6 +147,7 @@ export function LayoutCockpit(props: Props) {
             onSelect={select}
             cppDone={phasesDone}
             resDone={resDone}
+            coreDone={coreDoneCount}
           />
         </div>
 
@@ -220,7 +227,7 @@ export function LayoutCockpit(props: Props) {
           <section id="plan-cpp" className={cn(PANEL, SECTION)}>
             <div className={PANEL_HEADER}>
               <h2 className="min-w-0 text-[14px] font-semibold text-[var(--pt-text)]">
-                C++ Semantic Cache
+                Google prep phases
               </h2>
               <span className="shrink-0 font-mono text-[12px] tabular-nums text-[var(--pt-text-3)]">
                 {phasesDone}/{PHASE_COUNT} complete
@@ -267,13 +274,67 @@ export function LayoutCockpit(props: Props) {
           <section id="plan-resume" className={cn(PANEL, SECTION)}>
             <div className={PANEL_HEADER}>
               <h2 className="min-w-0 text-[14px] font-semibold text-[var(--pt-text)]">
-                Resume checklist
+                Interview-day checklist
               </h2>
               <span className="shrink-0 font-mono text-[12px] tabular-nums text-[var(--pt-text-3)]">
                 {resDone}/{RESUME_ITEMS.length}
               </span>
             </div>
             <ResumeChecklistBody state={state} onToggleCheck={onToggleCheck} />
+          </section>
+
+          <section id="plan-core" className={cn(PANEL, SECTION)}>
+            <div className={PANEL_HEADER}>
+              <h2 className="min-w-0 text-[14px] font-semibold text-[var(--pt-text)]">
+                Core set — the fallback 20
+              </h2>
+              <span className="shrink-0 font-mono text-[12px] tabular-nums text-[var(--pt-text-3)]">
+                {coreDoneCount}/{CORE_SET.length}
+              </span>
+            </div>
+            <div className="h-[3px] bg-[var(--pt-border)]">
+              <div
+                className="h-full bg-[var(--pt-blue)] transition-all duration-700"
+                style={{ width: `${(coreDoneCount / CORE_SET.length) * 100}%` }}
+              />
+            </div>
+            <CoreSetBody state={state} onToggleCheck={onToggleCheck} />
+          </section>
+
+          <section id="plan-patterns" className={cn(PANEL, SECTION)}>
+            <div className={PANEL_HEADER}>
+              <h2 className="text-[14px] font-semibold text-[var(--pt-text)]">
+                Pattern inventory — 26 skeletons
+              </h2>
+            </div>
+            <PatternInventoryBody />
+          </section>
+
+          <section id="plan-gotchas" className={cn(PANEL, SECTION)}>
+            <div className={PANEL_HEADER}>
+              <h2 className="text-[14px] font-semibold text-[var(--pt-text)]">
+                C++ gotchas — in a doc, no compiler
+              </h2>
+            </div>
+            <CppGotchasBody />
+          </section>
+
+          <section id="plan-protocol" className={cn(PANEL, SECTION)}>
+            <div className={PANEL_HEADER}>
+              <h2 className="text-[14px] font-semibold text-[var(--pt-text)]">
+                In-round execution protocol
+              </h2>
+            </div>
+            <ExecutionProtocolBody />
+          </section>
+
+          <section id="plan-behavioral" className={cn(PANEL, SECTION)}>
+            <div className={PANEL_HEADER}>
+              <h2 className="text-[14px] font-semibold text-[var(--pt-text)]">
+                Behavioral, AI fluency &amp; intel
+              </h2>
+            </div>
+            <BehavioralAiBody />
           </section>
         </div>
       </div>

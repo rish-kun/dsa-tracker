@@ -13,9 +13,10 @@ study plan that ticks itself off as you solve.
 | Route | What it is |
 |---|---|
 | `/` | Dashboard — totals, difficulty/source breakdown, solves over time, recent activity |
-| `/plan` | **Owner-only.** 26-day study plan — daily tasks, per-day log, exact NeetCode 150 progress, today's automatic solve count, C++ phases, and streak. **LeetCode problems in the plan tick themselves** after the extension records a solve; an already-open plan refreshes when its tab regains focus |
+| `/plan` | **Owner-only.** 34-day study plan — daily tasks, per-day log, exact NeetCode 150 progress, today's automatic solve count, Google prep phases, and streak. **LeetCode problems in the plan tick themselves** after the extension records a solve; an already-open plan refreshes when its tab regains focus |
 | `/problems` | Full solved-problem table — every canonical key with its title, difficulty, source, and first-solve date |
 | `/settings` | Mint and revoke the extension API keys that authenticate `/api/*` |
+| `/setup` | Guided post-signup walkthrough for installing and connecting the extension — where signing up lands you |
 | `/sign-in`, `/sign-up` | Clerk auth. Every other route redirects here (`?redirect_url=<path>`) when signed out |
 
 **Everything is per-account.** Sign-in is Clerk; every user-owned table is
@@ -28,13 +29,14 @@ see [Install the extension](#install-the-extension).
 
 - `apps/extension` — WXT (Manifest V3) browser extension, Chromium only
   (Chrome / Edge / Brave / Helium)
-- `apps/web` — Next.js 16 (App Router, React 19) web app: the three routes above
+- `apps/web` — Next.js 16 (App Router, React 19) web app: the routes above
   + the API, on Vercel. Drizzle ORM over `postgres.js` against Supabase Postgres
 - `packages/shared` — TypeScript types shared by the app and the extension
-- `packages/plan-data` — the 26-day curriculum, hardcoded in TypeScript
-  (editing the plan means editing this package): 26 days, 7 C++ phases,
-  6 week groupings, 6 resume items, 72 problems — 67 of which carry an
-  `lc:<slug>` canonical key and can auto-tick. The 5 `(Striver)` entries have
+- `packages/plan-data` — the 34-day curriculum, hardcoded in TypeScript
+  (editing the plan means editing this package): 34 days, 7 prep phases,
+  8 week groupings, 10 interview-day checklist items, 150 scheduled problems —
+  145 of which carry an `lc:<slug>` canonical key and can auto-tick, plus a
+  separate 20-problem fallback `CORE_SET`. The 5 `(Striver)` entries have
   no LeetCode equivalent and are hand-ticked only.
 
 **How counting works:** every problem gets a canonical key — `lc:<slug>` when it
@@ -51,6 +53,18 @@ geeksforgeeks.org the extension shows a **"Mark as completed?"** prompt.
 This is the path if you just want to use the tracker against the hosted
 backend — no clone, no build. (To build from source instead, skip to
 [Setup](#setup).)
+
+**Signing up drops you straight onto
+[/setup](https://dsa-tracker-final-web.vercel.app/setup), which walks through
+exactly these steps in the browser** — the list below is the same thing in
+text, useful if you closed the tab. The dashboard also keeps showing a *"Finish
+setting up the extension"* notice until the extension has actually called the
+API once; it disappears on its own and has no dismiss button. That check is a
+proxy, not detection — a web page cannot see this extension (it ships no
+`web_accessible_resources` and is not `externally_connectable`, both
+deliberate), so the notice reads Clerk's `lastUsedAt` on your keys instead. A
+key that exists but has never been used means it was minted and never pasted
+into the popup.
 
 1. **Create an account** at
    [dsa-tracker-final-web.vercel.app/sign-up](https://dsa-tracker-final-web.vercel.app/sign-up).
@@ -218,8 +232,9 @@ Step-by-step walkthrough: [`docs/load-extension.md`](docs/load-extension.md).
 
 ## Deployment (Vercel)
 
-Only `apps/web` is deployed. The extension is loaded unpacked from a local
-build and is **not** part of the Vercel deploy — see
+Only `apps/web` is deployed. The extension is loaded unpacked — from a release
+zip or a local build — and is **not** part of the Vercel deploy; it ships via
+[its own GitHub Actions workflow](#releasing-the-extension). See
 [Extension vs. web app](#extension-vs-web-app-they-ship-separately).
 
 Every command below runs from the repository checkout root unless stated
@@ -356,13 +371,12 @@ curl -X POST https://<your-app>.vercel.app/api/catalog/refresh \
 # -> {"refreshed": <N>}
 ```
 
-That route is the one API endpoint that does **not** take an extension bearer
-key — it is machine-to-machine, so it matches its own header against
-`CATALOG_REFRESH_SECRET`. If that variable is unset in the deployment, the
-route 401s no matter what you send.
-
-That route runs the identical routine server-side. There is **no** equivalent
-API route for migrations — `pnpm db:migrate` is the only way to apply schema.
+That runs the identical routine server-side. It is the one API endpoint that
+does **not** take an extension bearer key — it is machine-to-machine, so it
+matches its own header against `CATALOG_REFRESH_SECRET`; if that variable is
+unset in the deployment, the route 401s no matter what you send. There is
+**no** equivalent API route for migrations — `pnpm db:migrate` is the only way
+to apply schema.
 
 ### 5. Point the extension at your deployment
 

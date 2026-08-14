@@ -1,15 +1,15 @@
 'use client';
 
-import { DAYS, PHASE_COUNT, RESUME_ITEMS, WEEKS } from '@dsa-tracker/plan-data';
+import { CORE_SET, DAYS, PHASE_COUNT, RESUME_ITEMS, WEEKS } from '@dsa-tracker/plan-data';
 import { useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import type { DaySummary } from './day-summary';
 import { stepDate, stepWeek } from './selection';
 
 /* ────────────────────────────────────────────────────────────────────────────
- * The day rail. This is the piece that makes the cockpit work: the 26-day
+ * The day rail. This is the piece that makes the cockpit work: the 34-day
  * schedule stops being a section you scroll past and becomes the navigator you
- * steer with, so "look ahead at Jul 24" is one click instead of 3000px.
+ * steer with, so "look ahead at Aug 19" is one click instead of 3000px.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /**
@@ -24,12 +24,17 @@ export type RefEntry = {
   meta?: string;
 };
 
-export function refEntries(cppDone: number, resDone: number): RefEntry[] {
+export function refEntries(cppDone: number, resDone: number, coreDone: number): RefEntry[] {
   return [
-    { id: 'plan-cpp', label: 'C++ Semantic Cache', meta: `${cppDone}/${PHASE_COUNT}` },
+    { id: 'plan-cpp', label: 'Google prep phases', meta: `${cppDone}/${PHASE_COUNT}` },
     { id: 'plan-schedule', label: 'Full schedule', meta: `${DAYS.length} days` },
     { id: 'plan-method', label: 'DSA method' },
-    { id: 'plan-resume', label: 'Resume checklist', meta: `${resDone}/${RESUME_ITEMS.length}` },
+    { id: 'plan-resume', label: 'Interview-day checklist', meta: `${resDone}/${RESUME_ITEMS.length}` },
+    { id: 'plan-core', label: 'Core set — 20', meta: `${coreDone}/${CORE_SET.length}` },
+    { id: 'plan-patterns', label: 'Pattern inventory' },
+    { id: 'plan-gotchas', label: 'C++ gotchas' },
+    { id: 'plan-protocol', label: 'Execution protocol' },
+    { id: 'plan-behavioral', label: 'Behavioral & AI' },
   ];
 }
 
@@ -42,13 +47,14 @@ type Props = {
   onSelect: (date: string) => void;
   cppDone: number;
   resDone: number;
+  coreDone: number;
 };
 
-export function PlanRail({ summaries, selectedDate, onSelect, cppDone, resDone }: Props) {
+export function PlanRail({ summaries, selectedDate, onSelect, cppDone, resDone, coreDone }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
   const todayRef = useRef<HTMLButtonElement>(null);
 
-  const refs = refEntries(cppDone, resDone);
+  const refs = refEntries(cppDone, resDone, coreDone);
 
   // Centre today on mount and on day rollover. scrollTop directly, NOT
   // scrollIntoView — that walks ancestors and would scroll the whole page.
@@ -171,7 +177,8 @@ export function PlanRail({ summaries, selectedDate, onSelect, cppDone, resDone }
 
                   {/* Only the user's own note, never the hardcoded milestone.
                       The plan ships a milestone on roughly a third of the days
-                      ("Semantic hits working", "SIMD speedup measured"), which
+                      ("Mock #1 done", "Mock #3 done · dress rehearsal clean",
+                      "Ready · templates cold-recalled"), which
                       turned the rail into a wall of violet text nobody was
                       reading. A note is there because someone chose to put it
                       there, which is what makes it worth the row. */}

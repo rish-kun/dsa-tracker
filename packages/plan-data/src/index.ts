@@ -185,14 +185,19 @@ export const NEETCODE_150_KEYS = [
   "lc:reverse-integer",
 ] as const
 
+/**
+ * The seven prep days of the Google interview run-up (14–20 Aug 2026), as
+ * phases. Replaced the finished C++ semantic-cache phases on 2026-08-14 — the
+ * old `phase:<slug>` check rows are orphaned by that swap, not migrated.
+ */
 export const PHASES: PhaseEntry[] = [
-  { name: "1 · Exact-match cache",   dates: "Jul 19",   desc: "CMake skeleton + GitHub repo · CLI: prompt → hash lookup → API on miss (libcurl + nlohmann/json)" },
-  { name: "2 · Semantic layer",      dates: "Jul 20",   desc: "Embedding client · flat vector store · scalar cosine · similarity threshold → hit/miss" },
-  { name: "3 · SIMD kernel",         dates: "Jul 21",   desc: "AVX2 cosine · 32-byte alignment · benchmark vs scalar (record the speedup)" },
-  { name: "4 · Cost-aware eviction", dates: "Jul 22",   desc: "Greedy-Dual-Size policy · memory cap · eviction unit test" },
-  { name: "5 · Persistence + concurrency", dates: "Jul 23", desc: "Versioned binary snapshot save/reload · corrupt-file handling · one std::shared_mutex" },
-  { name: "6 · Benchmark + README",  dates: "Jul 24",   desc: "Workload replay · hit rate / latency / $ saved · README + fill resume metric placeholders" },
-  { name: "Buffer · polish + ship",  dates: "Jul 25–26", desc: "Edge cases · NSW index only if all green · push + polish repo → real metrics to resume" },
+  { name: "1 · Trees I — recursion mechanics",        dates: "Aug 14", desc: "Null base case as a reflex · DFS return-one/record-another · BFS with the level_size snapshot · iterative inorder" },
+  { name: "2 · Trees II — BST, LCA, reconstruction",  dates: "Aug 15", desc: "Inherited bounds not parent comparison · the LCA recursion · preorder+inorder index bookkeeping · MOCK #1" },
+  { name: "3 · Graphs I — BFS/DFS and grids",         dates: "Aug 16", desc: "Adjacency build directed and undirected · multi-source BFS · 4-direction grid offsets · mark visited at push time" },
+  { name: "4 · Graphs II — topo sort and union-find", dates: "Aug 17", desc: "Kahn indegree with the size check as cycle detection · DisjointSet with path compression · 3-state cycle detection · MOCK #2" },
+  { name: "5 · Backtracking, stacks, heaps",          dates: "Aug 18", desc: "choose → explore → un-choose · monotonic stack amortisation · priority_queue comparator direction" },
+  { name: "6 · Binary search on answer, intervals",   dates: "Aug 19", desc: "First-true invariant · isFeasible as a named helper · sort-by-start vs sort-by-end · MOCK #3 full dress rehearsal" },
+  { name: "7 · Consolidation — retrieval only",       dates: "Aug 20", desc: "All 26 skeletons from memory in one sitting · four re-solves against the clock · mistake log end to end · logistics, then sleep" },
 ]
 
 export const WEEKS: Array<{ label: string; indices: number[] }> = [
@@ -202,6 +207,10 @@ export const WEEKS: Array<{ label: string; indices: number[] }> = [
   { label: "Final sprint · C++ ship (3h PM) + new DSA 5/day (AM 2h)", indices: [12,13,14,15,16,17,18,19] },
   { label: "Transit · Tokyo → Delhi → Pilani", indices: [20,21,22] },
   { label: "Settle + mock OAs + OA day", indices: [23,24,25] },
+  // Every DAYS index must appear in exactly one group: schedule.tsx and
+  // plan-rail.tsx iterate WEEKS, so a day in no group renders nowhere.
+  { label: "Google prep · Trees → Graphs → Backtracking (Aug 14–17)", indices: [26,27,28,29] },
+  { label: "Interview week · dress rehearsal, taper, Google Fri 21", indices: [30,31,32,33] },
 ]
 
 export const DAYS: DayEntry[] = [
@@ -399,15 +408,267 @@ export const DAYS: DayEntry[] = [
       ["oth","Keep evening revision rolling: NestJS/FHIR → Django/Celery → deployment story → C++ deep-dive rehearsal"],
     ],
     milestone:"Go time" },
+
+  { date:"2026-08-14", label:"Fri Aug 14 · Day 1 · Trees I: recursion mechanics — null-check reflex",
+    tasks:[
+      ["dsa","Block A drill 1 — arrays: two pointers · sliding window · hash complement · prefix sum · binary search"],
+      ["dsa","Block A drill 2 — trees: DFS plain · DFS return-one/record-another · BFS level_size · iterative inorder"],
+      ["dsa","Day one gets both blocks — diff every template against the pattern sheet and circle each difference"],
+      ["dsa","LC 543 → LC 110 (same shape, -1 sentinel early exit) → LC 199 twice: BFS, then DFS, compare space"],
+      ["dsa","Block D no-IDE rep (45 min) — LC 102 by hand in a plain Doc: level_size snapshot · null guards"],
+      ["dsa","Paste the Doc code into LeetCode unedited · log every diff · Block F mistake log, 10 min"],
+      ["cpp","Plain-doc habits — 2-space indent, close braces at once, helpers above callers; drill isVowel + std::swap"],
+      ["res","Block E (30 min) — message 5–6 BITS seniors at Google · resume hygiene pass · intro v1 with 2 hooks"],
+      ["oth","Hard stop 17:30 and eat · warm-up then Intuit OA 18:00 · warm-up 20:30 then eBay OA 21:00 · sleep"],
+    ],
+    problems:[
+      { name:"LC 345 Reverse Vowels of a String",                  difficulty:"E", category:"new", canonicalKey:"lc:reverse-vowels-of-a-string" },
+      { name:"LC 104 Maximum Depth of Binary Tree",                difficulty:"E", category:"new", canonicalKey:"lc:maximum-depth-of-binary-tree" },
+      { name:"LC 226 Invert Binary Tree",                          difficulty:"E", category:"new", canonicalKey:"lc:invert-binary-tree" },
+      { name:"LC 543 Diameter of Binary Tree",                     difficulty:"E", category:"new", canonicalKey:"lc:diameter-of-binary-tree" },
+      { name:"LC 110 Balanced Binary Tree",                        difficulty:"E", category:"new", canonicalKey:"lc:balanced-binary-tree" },
+      { name:"LC 102 Binary Tree Level Order Traversal",           difficulty:"M", category:"new", canonicalKey:"lc:binary-tree-level-order-traversal" },
+      { name:"LC 199 Binary Tree Right Side View",                 difficulty:"M", category:"new", canonicalKey:"lc:binary-tree-right-side-view" },
+      { name:"LC 94 Binary Tree Inorder Traversal",                difficulty:"E", category:"stretch", canonicalKey:"lc:binary-tree-inorder-traversal" },
+      { name:"LC 113 Path Sum II",                                 difficulty:"M", category:"stretch", canonicalKey:"lc:path-sum-ii" },
+      { name:"LC 125 Valid Palindrome",                            difficulty:"E", category:"revision", canonicalKey:"lc:valid-palindrome" },
+      { name:"LC 3 Longest Substring Without Repeating Characters", difficulty:"M", category:"revision", canonicalKey:"lc:longest-substring-without-repeating-characters" },
+      { name:"LC 15 3Sum",                              difficulty:"M", category:"revision", canonicalKey:"lc:3sum" },
+    ],
+    milestone:"Tree recursion reflex" },
+
+  { date:"2026-08-15", label:"Sat Aug 15 · Day 2 · Trees II: BST · LCA · reconstruction — MOCK #1",
+    tasks:[
+      ["dsa","Block A drill (25 min) — BST validate-with-bounds · the LCA recursion shape · level-order"],
+      ["dsa","Block B recall reps (15 min) — re-derive LC 543 and LC 199 on paper, cold, no notes"],
+      ["dsa","MOCK #1 (45 min timed) — LC 863 opened cold: visible timer, camera on, recording, Doc only, no IDE"],
+      ["dsa","Mock protocol — 3 min of clarifying questions aloud, compare two approaches aloud, code, dry-run"],
+      ["dsa","LC 863 forces the tree-to-graph conversion — add parent pointers, then BFS out from the target"],
+      ["dsa","Mock review (45 min) at 1.5× — count silences over 15s · coding before complexity · missed edges"],
+      ["dsa","Log those three numbers for the Mon/Wed comparison, rewrite LC 863 cleanly, then Block F entries"],
+      ["cpp","Drill priority_queue and unordered_map gotchas — the ones that bite with no compiler to catch them"],
+      ["res","Block E (30 min) — project deep-dive: write the 10 pre-answered questions for each resume project"],
+      ["oth","Free day, 5h budget — protect the review block; the review is worth more than the mock itself"],
+    ],
+    problems:[
+      { name:"LC 98 Validate Binary Search Tree",                     difficulty:"M", category:"new", canonicalKey:"lc:validate-binary-search-tree" },
+      { name:"LC 230 Kth Smallest Element in a BST",                  difficulty:"M", category:"new", canonicalKey:"lc:kth-smallest-element-in-a-bst" },
+      { name:"LC 236 Lowest Common Ancestor of a Binary Tree",        difficulty:"M", category:"new", canonicalKey:"lc:lowest-common-ancestor-of-a-binary-tree" },
+      { name:"LC 235 Lowest Common Ancestor of a BST",                difficulty:"M", category:"new", canonicalKey:"lc:lowest-common-ancestor-of-a-binary-search-tree" },
+      { name:"LC 105 Construct Binary Tree from Preorder and Inorder", difficulty:"M", category:"new", canonicalKey:"lc:construct-binary-tree-from-preorder-and-inorder-traversal" },
+      { name:"LC 863 All Nodes Distance K in Binary Tree",            difficulty:"M", category:"new", canonicalKey:"lc:all-nodes-distance-k-in-binary-tree" },
+      { name:"LC 543 Diameter of Binary Tree",                        difficulty:"E", category:"revision", canonicalKey:"lc:diameter-of-binary-tree" },
+      { name:"LC 199 Binary Tree Right Side View",                    difficulty:"M", category:"revision", canonicalKey:"lc:binary-tree-right-side-view" },
+      { name:"LC 1448 Count Good Nodes in Binary Tree",               difficulty:"M", category:"stretch", canonicalKey:"lc:count-good-nodes-in-binary-tree" },
+      { name:"LC 173 Binary Search Tree Iterator",                    difficulty:"M", category:"stretch", canonicalKey:"lc:binary-search-tree-iterator" },
+      { name:"LC 124 Binary Tree Maximum Path Sum",                   difficulty:"H", category:"stretch", canonicalKey:"lc:binary-tree-maximum-path-sum" },
+    ],
+    milestone:"Mock #1 done" },
+
+  { date:"2026-08-16", label:"Sun Aug 16 · Day 3 · Graphs I — representation, BFS/DFS, grids",
+    tasks:[
+      ["oth","Free day · budget 5h — highest-leverage day of the week; protect it from everything else"],
+      ["dsa","Block A template drill (30 min): adjacency list directed + undirected, BFS with distance array, recursive DFS, 4-dir grid offsets — all four cold"],
+      ["dsa","Block B recall reps (15 min): re-derive LC 236 and LC 98 on paper"],
+      ["dsa","Block D no-IDE rep (50 min) — LC 200 BFS version with an explicit visited grid"],
+      ["dsa","Say the assumption aloud first — I assume I may not mutate the grid so I allocate visited; if mutation is allowed I drop it and save O(m·n) space"],
+      ["cpp","Mark visited at push time, not pop time; write the vector<vector<int>> grid init one-liner from memory"],
+      ["res","Block E side track (30 min): growth mindset — internalise the 13 verbatim lines (hint received, approach wrong, genuinely stuck, self-caught bug, polite disagreement)"],
+      ["oth","Block F — mistake log entries before shutting down"],
+    ],
+    problems:[
+      { name:"LC 200 Number of Islands",                    difficulty:"M", category:"new", canonicalKey:"lc:number-of-islands" },
+      { name:"LC 994 Rotting Oranges",                      difficulty:"M", category:"new", canonicalKey:"lc:rotting-oranges" },
+      { name:"LC 133 Clone Graph",                          difficulty:"M", category:"new", canonicalKey:"lc:clone-graph" },
+      { name:"LC 542 01 Matrix",                            difficulty:"M", category:"new", canonicalKey:"lc:01-matrix" },
+      { name:"LC 417 Pacific Atlantic Water Flow",          difficulty:"M", category:"new", canonicalKey:"lc:pacific-atlantic-water-flow" },
+      { name:"LC 236 Lowest Common Ancestor of a Binary Tree", difficulty:"M", category:"revision", canonicalKey:"lc:lowest-common-ancestor-of-a-binary-tree" },
+      { name:"LC 98 Validate Binary Search Tree",           difficulty:"M", category:"revision", canonicalKey:"lc:validate-binary-search-tree" },
+      { name:"LC 695 Max Area of Island",                   difficulty:"M", category:"stretch", canonicalKey:"lc:max-area-of-island" },
+      { name:"LC 130 Surrounded Regions",                   difficulty:"M", category:"stretch", canonicalKey:"lc:surrounded-regions" },
+      { name:"LC 1091 Shortest Path in Binary Matrix",      difficulty:"M", category:"stretch", canonicalKey:"lc:shortest-path-in-binary-matrix" },
+    ],
+    milestone:"Grid BFS/DFS automatic" },
+
+  { date:"2026-08-17", label:"Mon Aug 17 · Day 4 · Graphs II — topo sort, union-find, cycles · MOCK #2",
+    tasks:[
+      ["oth","Working window 10:00–17:30 — everything lands before the stop; nothing gets pushed to tonight"],
+      ["dsa","Block A template drill (30 min): Kahn topo sort, DisjointSet struct, 3-state directed cycle detection"],
+      ["cpp","Write the DisjointSet struct from memory three times — union by size + path compression, no peeking"],
+      ["dsa","Block B recall reps (15 min): re-derive LC 994 multi-source seeding and LC 133 map-as-visited-set"],
+      ["dsa","Block D MOCK #2 (45 min timed, ~14:00) — LC 752, BFS on an implicit graph, neighbours generated on the fly"],
+      ["dsa","Mock protocol: cold, recorded, doc only — edge cases deadends containing start, target 0000, unreachable target"],
+      ["dsa","Mock review (30 min): same three counts vs Saturday — the silences should be dropping"],
+      ["res","Block E side track (25 min): write the Why Google answer around one verifiable specific artifact; pick 5 questions for the interviewer"],
+      ["oth","Block F mistake log · hard stop 17:30 · eat properly, it is a long night"],
+      ["oth","Warm-up 19:30 → Ebullient pen-and-paper OA 20:00 · warm-up 22:00 → Salesforce OA 22:30"],
+      ["oth","Finishing past midnight — sleep immediately after, review nothing"],
+    ],
+    problems:[
+      { name:"LC 207 Course Schedule",                          difficulty:"M", category:"new", canonicalKey:"lc:course-schedule" },
+      { name:"LC 210 Course Schedule II",                       difficulty:"M", category:"new", canonicalKey:"lc:course-schedule-ii" },
+      { name:"LC 547 Number of Provinces",                      difficulty:"M", category:"new", canonicalKey:"lc:number-of-provinces" },
+      { name:"LC 684 Redundant Connection",                     difficulty:"M", category:"new", canonicalKey:"lc:redundant-connection" },
+      { name:"LC 752 Open the Lock",                            difficulty:"M", category:"new", canonicalKey:"lc:open-the-lock" },
+      { name:"LC 994 Rotting Oranges",                          difficulty:"M", category:"revision", canonicalKey:"lc:rotting-oranges" },
+      { name:"LC 133 Clone Graph",                              difficulty:"M", category:"revision", canonicalKey:"lc:clone-graph" },
+      { name:"LC 424 Longest Repeating Character Replacement",  difficulty:"M", category:"revision", canonicalKey:"lc:longest-repeating-character-replacement" },
+      { name:"LC 560 Subarray Sum Equals K",                    difficulty:"M", category:"revision", canonicalKey:"lc:subarray-sum-equals-k" },
+      { name:"LC 802 Find Eventual Safe States",                difficulty:"M", category:"stretch", canonicalKey:"lc:find-eventual-safe-states" },
+      { name:"LC 721 Accounts Merge",                           difficulty:"M", category:"stretch", canonicalKey:"lc:accounts-merge" },
+      { name:"LC 785 Is Graph Bipartite",                       difficulty:"M", category:"stretch", canonicalKey:"lc:is-graph-bipartite" },
+    ],
+    milestone:"Mock #2 done" },
+
+  { date:"2026-08-18", label:"Tue Aug 18 · Day 5 · Recursion and backtracking, stacks, heaps",
+    tasks:[
+      ["dsa","Block A drill (30 min) — backtracking choose/explore/un-choose, monotonic stack, min-heap decl written 3x"],
+      ["dsa","Block B recall reps (15 min) — Kahn topological sort from LC 207 and DisjointSet from LC 684, cold"],
+      ["dsa","Block D no-IDE rep (45 min) on LC 78 — backtracking and bitmask, then 2 sentences on which you would pick"],
+      ["cpp","priority_queue — greater<int> gives a MIN-heap, opposite of sort; the most common under-pressure C++ bug"],
+      ["res","Block E side track (30 min) — AI fluency session 1: fill all five story slots, manufacture any empty one"],
+      ["dsa","Block F — mistake log entries"],
+      ["oth","Window 11:00–17:30, late start by design; if wrecked cut the if-time list entirely — never cut sleep"],
+      ["oth","Hard stop 17:30 · warm-up 19:30 · Arcesium OA 20:00 · then sleep, tomorrow starts early"],
+    ],
+    problems:[
+      { name:"LC 78 Subsets",                           difficulty:"M", category:"new", canonicalKey:"lc:subsets" },
+      { name:"LC 46 Permutations",                      difficulty:"M", category:"new", canonicalKey:"lc:permutations" },
+      { name:"LC 39 Combination Sum",                   difficulty:"M", category:"new", canonicalKey:"lc:combination-sum" },
+      { name:"LC 79 Word Search",                       difficulty:"M", category:"new", canonicalKey:"lc:word-search" },
+      { name:"LC 215 Kth Largest Element in an Array",  difficulty:"M", category:"new", canonicalKey:"lc:kth-largest-element-in-an-array" },
+      { name:"LC 739 Daily Temperatures",               difficulty:"M", category:"new", canonicalKey:"lc:daily-temperatures" },
+      { name:"LC 207 Course Schedule",                  difficulty:"M", category:"revision", canonicalKey:"lc:course-schedule" },
+      { name:"LC 684 Redundant Connection",             difficulty:"M", category:"revision", canonicalKey:"lc:redundant-connection" },
+      { name:"LC 704 Binary Search",                    difficulty:"E", category:"revision", canonicalKey:"lc:binary-search" },
+      { name:"LC 22 Generate Parentheses",              difficulty:"M", category:"stretch", canonicalKey:"lc:generate-parentheses" },
+      { name:"LC 347 Top K Frequent Elements",          difficulty:"M", category:"stretch", canonicalKey:"lc:top-k-frequent-elements" },
+      { name:"LC 973 K Closest Points to Origin",       difficulty:"M", category:"stretch", canonicalKey:"lc:k-closest-points-to-origin" },
+      { name:"LC 208 Implement Trie",                   difficulty:"M", category:"stretch", canonicalKey:"lc:implement-trie-prefix-tree" },
+    ],
+    milestone:"Backtracking + heaps fluent" },
+
+  { date:"2026-08-19", label:"Wed Aug 19 · Day 6 · MOCK #3 first, then binary search on answer, intervals, greedy",
+    tasks:[
+      ["dsa","Block D MOCK #3 (50 min, 09:30–10:20) — full dress rehearsal, run the ENTIRE ritual while fresh"],
+      ["dsa","09:30–09:34 camera on, earphones in, quiet room — deliver the intro cold, out loud"],
+      ["dsa","09:34–10:14 LC 1268 in the doc — simple approach first, then offer the trie"],
+      ["dsa","10:14–10:20 ask your two questions for the interviewer out loud, as if they were there"],
+      ["dsa","Mock review (40 min) — recording, three counts, vs Saturday and Monday; then no new material"],
+      ["dsa","Block A drill (25 min) — first-true binary search, search-on-answer isFeasible, merge intervals, lambda sort"],
+      ["dsa","Block B (15 min) — re-derive LC 78 and LC 79 on paper · Block F mistake log entries"],
+      ["res","Block E — pick the closing questions, rehearse the AI-fluency answers out loud"],
+      ["cpp","sort comparator must return strict less-than, never <= — <= is undefined behaviour and can crash std::sort"],
+      ["oth","Window 09:30–16:30 — last real working day and the most compressed; the mock goes first, while fresh"],
+      ["oth","HARD STOP 16:30 — five minutes and start · Flipkart OA 17:00 · Accenture ML+GN 19:00 · nothing after"],
+    ],
+    problems:[
+      { name:"LC 875 Koko Eating Bananas",                       difficulty:"M", category:"new", canonicalKey:"lc:koko-eating-bananas" },
+      { name:"LC 1011 Capacity To Ship Packages Within D Days",  difficulty:"M", category:"new", canonicalKey:"lc:capacity-to-ship-packages-within-d-days" },
+      { name:"LC 33 Search in Rotated Sorted Array",             difficulty:"M", category:"new", canonicalKey:"lc:search-in-rotated-sorted-array" },
+      { name:"LC 56 Merge Intervals",                            difficulty:"M", category:"new", canonicalKey:"lc:merge-intervals" },
+      { name:"LC 57 Insert Interval",                            difficulty:"M", category:"new", canonicalKey:"lc:insert-interval" },
+      { name:"LC 1268 Search Suggestions System",                difficulty:"M", category:"new", canonicalKey:"lc:search-suggestions-system" },
+      { name:"LC 1466 Reorder Routes to City Zero",              difficulty:"M", category:"stretch", canonicalKey:"lc:reorder-routes-to-make-all-paths-lead-to-the-city-zero" },
+      { name:"LC 78 Subsets",                                    difficulty:"M", category:"revision", canonicalKey:"lc:subsets" },
+      { name:"LC 79 Word Search",                                difficulty:"M", category:"revision", canonicalKey:"lc:word-search" },
+      { name:"LC 238 Product of Array Except Self",              difficulty:"M", category:"revision", canonicalKey:"lc:product-of-array-except-self" },
+      { name:"LC 128 Longest Consecutive Sequence",              difficulty:"M", category:"revision", canonicalKey:"lc:longest-consecutive-sequence" },
+      { name:"LC 1094 Car Pooling",                      difficulty:"M", category:"revision", canonicalKey:"lc:car-pooling" },
+      { name:"LC 435 Non-overlapping Intervals",                 difficulty:"M", category:"stretch", canonicalKey:"lc:non-overlapping-intervals" },
+      { name:"LC 134 Gas Station",                               difficulty:"M", category:"stretch", canonicalKey:"lc:gas-station" },
+    ],
+    milestone:"Mock #3 done · dress rehearsal clean" },
+
+  { date:"2026-08-20", label:"Thu Aug 20 · Day 7 · LIGHT — consolidation only",
+    tasks:[
+      ["dsa","Template rewrite marathon (45 min): 26 pattern skeletons from memory in one sitting, then diff and mark gaps"],
+      ["dsa","Re-solve from memory (45 min), 10 min each — LC 200, 102, 207, 78; over 12 min → rewrite that skeleton twice"],
+      ["dsa","Read the mistake log end to end (25 min) — all of it, no skimming"],
+      ["cpp","Read the C++ gotcha sheet once, slowly — substr length not end index, size() unsigned, helpers above callers"],
+      ["dsa","One easy problem to end on a win (20 min) — nothing harder; close the week clean, fast, correct"],
+      ["res","Side track (20 min): AI fluency 2 — 90-second workflow monologue out loud, timed, then 5 cold-recall HR items"],
+      ["oth","Logistics · tech-failure prep (15 min): camera, mic, hotspot, links saved offline, recruiter number on paper"],
+      ["oth","Charger, earphones, water, quiet room booked, Meet and doc links in the calendar, invite acknowledged"],
+      ["oth","Then stop — no LeetCode after 19:00, none. Walk, eat properly, in bed by 22:30"],
+    ],
+    problems:[
+      { name:"LC 200 Number of Islands",                 difficulty:"M", category:"revision", canonicalKey:"lc:number-of-islands" },
+      { name:"LC 102 Binary Tree Level Order Traversal", difficulty:"M", category:"revision", canonicalKey:"lc:binary-tree-level-order-traversal" },
+      { name:"LC 207 Course Schedule",                   difficulty:"M", category:"revision", canonicalKey:"lc:course-schedule" },
+      { name:"LC 78 Subsets",                            difficulty:"M", category:"revision", canonicalKey:"lc:subsets" },
+      { name:"LC 733 Flood Fill",                        difficulty:"E", category:"revision", canonicalKey:"lc:flood-fill" },
+      { name:"LC 104 Maximum Depth of Binary Tree",      difficulty:"E", category:"revision", canonicalKey:"lc:maximum-depth-of-binary-tree" },
+    ],
+    milestone:"Ready · templates cold-recalled" },
+
+  { date:"2026-08-21", label:"Fri Aug 21 · GOOGLE INTERVIEW · two rounds, Meet + shared doc, C++",
+    tasks:[
+      ["oth","T−60: eat light, close every app that pushes notifications, phone on silent and face down"],
+      ["oth","T−60: phone out of reach but reachable if they call — recruiter number visible on the screen"],
+      ["oth","T−60: quiet room, door shut, no background noise. Light on your face, window in front not behind"],
+      ["oth","T−30: open only the Meet link, the interview doc and the protocol sheet. No LeetCode, no new problems"],
+      ["res","T−30: 90-second intro out loud, standing, timed. Then one approach comparison — warm the voice up first"],
+      ["oth","T−5: camera, mic, earphones, video on, head-and-shoulders frame. Water, pen, paper. Join 1–2 min early"],
+      ["dsa","In-round: restate the problem first. Two approaches with complexities and a check-in before typing"],
+      ["dsa","In-round: say what you are about to write, then write it. Announce every pause longer than 15 seconds"],
+      ["dsa","In-round: at T+30 stop coding and start the dry run, whatever state the code is in — protect the last 8 min"],
+      ["cpp","In-doc: assumptions block at top, helpers above callers, close braces immediately, std::swap not a temp"],
+      ["res","Close: ask two of your four prepared questions, react to the answers, thank them by name"],
+      ["oth","Between rounds (15–30 min): stand, walk, water. No post-mortem, no lookups — reset the doc scaffolding"],
+      ["oth","After: within 20 minutes write down both problems, what you said, where you stalled, every hint given"],
+    ],
+    milestone:"Google interview · rounds 1 and 2" },
 ]
 
+/**
+ * Interview-day logistics, run the night before and on the morning of
+ * Fri 21 Aug 2026. Replaced the resume-editing checklist on 2026-08-14 (the
+ * resume was frozen Jul 30) — the old `resume:<slug>` rows are orphaned.
+ *
+ * `checkId.resume` slices the slug at 48 chars, so every item below must stay
+ * distinct within its first 48 slug characters or two rows share one id.
+ */
 export const RESUME_ITEMS: string[] = [
-  "Add GitHub / LinkedIn / LeetCode links to the header",
-  "Reorder skills: C++ first; drop 'Cloud Services' & 'Backend Web Development'",
-  "Add C++ Semantic Cache with REAL benchmark numbers (only after Jul 24–25 — never before)",
-  "Reorder projects: Semantic Cache → Fest Backend → LLM Fine-Tuning → Hostel Portal",
-  "Trim bullets: Fest Backend 5→4 · LLM Fine-Tuning 3→2 · Hostel Portal 3→2",
-  "Verify two-liner bullets fill ≥75% of the second line in Superset preview",
+  "Find the Meet invite in personal email — confirm date, time, Meet link and interview doc link",
+  "Open the interview doc link now to confirm access — if it 403s, email the recruiter tonight",
+  "Acknowledge the calendar invite and add a 60-minute-before alert",
+  "Charge laptop, phone and earphones — leave the charger by the desk",
+  "Test the mobile hotspot, and save both links outside the browser",
+  "Write the recruiter's number on paper and leave it next to the desk",
+  "Block the whole afternoon — round 2 can follow within 15–30 min of round 1",
+  "Clear the desk: water, pen, blank paper for scratch you don't want in the shared doc",
+  "Test camera and mic, frame head and shoulders, light in front of you not behind",
+  "Lay out plain clothes — presentable, not formal; plain colours read better on camera",
+]
+
+/**
+ * The fallback 20: if the week collapses to a single day, do exactly these, in
+ * this order. No two of them teach the same skeleton. All carry a canonicalKey,
+ * so they auto-tick from solved_problems the same way DAYS problems do — but
+ * they get their own id family (`checkId.core`), distinct from any day's rows.
+ */
+export const CORE_SET: DsaProblem[] = [
+  { name: "LC 3 Longest Substring Without Repeating Characters", difficulty: "M", category: "revision", canonicalKey:"lc:longest-substring-without-repeating-characters" },
+  { name: "LC 560 Subarray Sum Equals K",                        difficulty: "M", category: "revision", canonicalKey:"lc:subarray-sum-equals-k" },
+  { name: "LC 15 3Sum",                                          difficulty: "M", category: "revision", canonicalKey:"lc:3sum" },
+  { name: "LC 704 Binary Search",                                difficulty: "E", category: "revision", canonicalKey:"lc:binary-search" },
+  { name: "LC 875 Koko Eating Bananas",                          difficulty: "M", category: "revision", canonicalKey:"lc:koko-eating-bananas" },
+  { name: "LC 56 Merge Intervals",                               difficulty: "M", category: "revision", canonicalKey:"lc:merge-intervals" },
+  { name: "LC 739 Daily Temperatures",                           difficulty: "M", category: "revision", canonicalKey:"lc:daily-temperatures" },
+  { name: "LC 104 Maximum Depth of Binary Tree",                 difficulty: "E", category: "revision", canonicalKey:"lc:maximum-depth-of-binary-tree" },
+  { name: "LC 543 Diameter of Binary Tree",                      difficulty: "E", category: "revision", canonicalKey:"lc:diameter-of-binary-tree" },
+  { name: "LC 236 Lowest Common Ancestor of a Binary Tree",      difficulty: "M", category: "revision", canonicalKey:"lc:lowest-common-ancestor-of-a-binary-tree" },
+  { name: "LC 98 Validate Binary Search Tree",                   difficulty: "M", category: "revision", canonicalKey:"lc:validate-binary-search-tree" },
+  { name: "LC 102 Binary Tree Level Order Traversal",            difficulty: "M", category: "revision", canonicalKey:"lc:binary-tree-level-order-traversal" },
+  { name: "LC 105 Construct Binary Tree from Preorder and Inorder Traversal", difficulty: "M", category: "revision", canonicalKey:"lc:construct-binary-tree-from-preorder-and-inorder-traversal" },
+  { name: "LC 200 Number of Islands",                            difficulty: "M", category: "revision", canonicalKey:"lc:number-of-islands" },
+  { name: "LC 994 Rotting Oranges",                              difficulty: "M", category: "revision", canonicalKey:"lc:rotting-oranges" },
+  { name: "LC 133 Clone Graph",                                  difficulty: "M", category: "revision", canonicalKey:"lc:clone-graph" },
+  { name: "LC 207 Course Schedule",                              difficulty: "M", category: "revision", canonicalKey:"lc:course-schedule" },
+  { name: "LC 684 Redundant Connection",                         difficulty: "M", category: "revision", canonicalKey:"lc:redundant-connection" },
+  { name: "LC 78 Subsets",                                       difficulty: "M", category: "revision", canonicalKey:"lc:subsets" },
+  { name: "LC 79 Word Search",                                   difficulty: "M", category: "revision", canonicalKey:"lc:word-search" },
 ]
 
 export const TAG_LABELS: Record<Tag, string> = {
@@ -437,6 +698,8 @@ export const checkId = {
   task: (date: string, i: number) => `task:${date}:${i}`,
   problem: (date: string, p: DsaProblem) =>
     `prob:${date}:${p.canonicalKey ?? slugify(p.name)}`,
+  // CORE_SET family — same "never a template literal elsewhere" rule as the rest.
+  core: (p: DsaProblem) => `core:${p.canonicalKey ?? slugify(p.name)}`,
   phase: (p: PhaseEntry) => `phase:${slugify(p.name)}`,
   resume: (text: string) => `resume:${slugify(text).slice(0, 48)}`,
 }
@@ -444,8 +707,8 @@ export const checkId = {
 /**
  * Public URL for a plan problem, or `null` when there is nowhere to send the
  * user. Derived from `canonicalKey`, which `scripts/resolve-plan-keys.ts`
- * populates for the 67 of 72 problems that carry an `LC <number>` prefix — the
- * 5 `(Striver)` entries have no LeetCode equivalent and return `null`.
+ * populates for the 145 of 150 problems that carry an `LC <number>` prefix —
+ * the 5 `(Striver)` entries have no LeetCode equivalent and return `null`.
  *
  * Keys are `lc:<titleSlug>`, and leetcode.com/problems/<titleSlug>/ is the
  * canonical problem URL, so this is a pure string derivation — no lookup.

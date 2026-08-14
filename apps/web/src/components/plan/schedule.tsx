@@ -17,7 +17,7 @@ import type { PlanViewState } from './types';
  * Accordion key for one day's category group. Purely UI state — unrelated to
  * check ids, which only ever come from `checkId`. It has to include the date:
  * every day renders into the same set, so a bare category would make opening
- * one day's "New" open all 26.
+ * one day's "New" open all 34.
  */
 const catAccordionKey = (date: string, cat: DsaCategory) => `${date}:${cat}`;
 
@@ -47,7 +47,7 @@ export function Schedule({ state, todayKey, onToggleCheck }: Props) {
 type BodyProps = Props & {
   /**
    * Wrap each week in its own disclosure, seeded to today's week only. Turns
-   * "open the schedule" from 26 rows into ~8, which is what makes it browsable
+   * "open the schedule" from 34 rows into ~8, which is what makes it browsable
    * rather than a second wall of content.
    */
   collapsibleWeeks?: boolean;

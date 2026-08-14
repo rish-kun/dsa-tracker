@@ -11,7 +11,7 @@ import type { PlanViewState } from './types';
  * Every metric is the same shape — label, bar, value — so they read as one
  * scale rather than one hero and three footnotes. The streak is the exception
  * and is deliberately not a meter: it has no meaningful denominator, and a bar
- * that is always nearly empty (a 6-day streak against what, 26?) reads as
+ * that is always nearly empty (a 6-day streak against what, 34?) reads as
  * failure. It gets a flame badge instead.
  *
  * The extra counter lives HERE and not in the day pane on purpose. It writes
@@ -122,7 +122,7 @@ export function RailVitals({
             tone="violet"
           />
           <MeterRow
-            label="C++"
+            label="Prep"
             value={`${cppDone}/${PHASE_COUNT}`}
             fraction={cppDone / PHASE_COUNT}
             tone="green"
