@@ -870,6 +870,12 @@ export const checkId = {
     `prob:${date}:${p.canonicalKey ?? slugify(p.name)}`,
   // CORE_SET family — same "never a template literal elsewhere" rule as the rest.
   core: (p: DsaProblem) => `core:${p.canonicalKey ?? slugify(p.name)}`,
+  /**
+   * `core` by canonical key alone, for `recordSolve`'s override cleanup, which
+   * only has the key. Safe because every CORE_SET entry is LeetCode-mappable,
+   * so `core` never takes its `slugify` fallback for this family.
+   */
+  coreKey: (canonicalKey: string) => `core:${canonicalKey}`,
   // Google revision family — every item is LeetCode-mappable, so canonicalKey is
   // required and there is no slugify fallback to fork the id space on.
   googleRevision: (p: GoogleRevisionProblem) => `grev:${p.canonicalKey}`,

@@ -245,14 +245,17 @@ them:
   `0.0 q/day · 0d left` forever rather than failing.
 
 **`checkId` is the SOLE constructor of check ids.** `packages/plan-data`
-exports `checkId.task/problem/core/phase/resume`; nothing else in the codebase may
-build one — **never a template literal**, or the id space silently forks
-between writer and reader:
+exports `checkId.task/problem/core/coreKey/googleRevision/googleRevisionKey/
+phase/resume`; nothing else in the codebase may build one — **never a
+template literal**, or the id space silently forks between writer and reader:
 
 ```ts
 checkId.task(date, i)     // `task:${date}:${i}`  — i = index in that day's tasks[]
 checkId.problem(date, p)  // `prob:${date}:${p.canonicalKey ?? slugify(p.name)}`
 checkId.core(p)           // `core:${p.canonicalKey ?? slugify(p.name)}` — CORE_SET rows
+checkId.coreKey(key)      // `core:${key}` — same id from the canonical key alone
+checkId.googleRevision(p) // `grev:${p.canonicalKey}` — GOOGLE_REVISION_ALL rows
+checkId.googleRevisionKey(key) // `grev:${key}`
 checkId.phase(p)          // `phase:${slugify(p.name)}`
 checkId.resume(text)      // `resume:${slugify(text).slice(0, 48)}`
 ```
@@ -263,6 +266,14 @@ existing rows. **Task ids are the exception: they ARE positional** (`i` is the
 index in that day's `tasks[]`). Inserting or reordering a task inside a day
 silently re-points every later task's id at a different label. Append to the
 end of a day's `tasks[]`; if you must reorder, accept that the ticks shift.
+
+The `*Key` variants exist for `recordSolve`, which holds only a canonical key,
+not the problem object. **All three auto-ticking families — `prob:`, `core:`
+and `grev:` — must be cleared together** when a live solve arrives, or an untick
+in one family becomes permanently sticky while the same untick in another does
+not. `GOOGLE_REVISION_*` entries require `canonicalKey` (no slugify fallback),
+and every `CORE_SET` entry has one, so the key-only variants cannot fork the id
+space.
 
 The only legal raw `prob:` strings are SQL `LIKE` patterns: the
 `dsaSolvedOn` date prefix in `src/lib/plan-state.ts` and `recordSolve`'s

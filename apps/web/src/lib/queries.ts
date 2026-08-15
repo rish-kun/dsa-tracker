@@ -285,8 +285,12 @@ export async function recordSolve(userId: string, req: SolveRequest): Promise<{
 
     // A manual false override may intentionally hide an older derived solve,
     // but a fresh live solve should win. Match every dated plan occurrence of
-    // the final server-authoritative key plus the Google-revision family; bulk
-    // history (backfill) must not clear overrides.
+    // the final server-authoritative key plus the CORE_SET and Google-revision
+    // families; bulk history (backfill) must not clear overrides.
+    //
+    // All three families auto-tick in `deriveAutoSolved` (app/plan/page.tsx), so
+    // all three must be cleared here — otherwise an untick in that family would
+    // be permanently sticky while the same untick elsewhere is not.
     if (req.detected !== 'backfill') {
       await tx
         .delete(planChecks)
@@ -296,6 +300,7 @@ export async function recordSolve(userId: string, req: SolveRequest): Promise<{
             sql`${planChecks.done} = false`,
             or(
               sql`${planChecks.checkId} like ${`prob:%:${canonicalKey}`}`,
+              eq(planChecks.checkId, checkId.coreKey(canonicalKey)),
               eq(planChecks.checkId, checkId.googleRevisionKey(canonicalKey)),
             ),
           ),

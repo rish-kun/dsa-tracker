@@ -68,7 +68,9 @@ const CARDS: ReferenceCard[] = [
     ),
   },
   {
-    title: 'Why Google &amp; closing',
+    // Plain JS string rendered as {title} — React escapes it, so an HTML entity
+    // here would show up literally. Use the character, not `&amp;`.
+    title: 'Why Google & closing',
     accent: 'text-[var(--pt-amber)]',
     accentBar: 'bg-[var(--pt-amber)]',
     content: (
