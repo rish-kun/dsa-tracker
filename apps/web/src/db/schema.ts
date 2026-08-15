@@ -1,3 +1,4 @@
+import type { Difficulty, TimeSite } from '@dsa-tracker/shared';
 import { sql } from 'drizzle-orm';
 import {
   bigserial,
@@ -110,3 +111,39 @@ export const planCounters = pgTable('plan_counters', {
   dsaHist: jsonb('dsa_hist').$type<number[]>().notNull().default([]),
   dsaExtraHist: jsonb('dsa_extra_hist').$type<number[]>().notNull().default([]),
 }, (t) => [primaryKey({ columns: [t.userId, t.id] })]);
+
+/** One resolved entry of the user's track. Saved by saveTrack() as a catalog
+ * snapshot, so rendering needs no catalog join and the list reflects the
+ * problem data as it was when the track was saved. */
+export interface TrackItem {
+  slug: string;
+  title: string;
+  number: number;
+  difficulty: Difficulty;
+  paidOnly: boolean;
+}
+
+/** The user's single track — exactly one row per user; `items` order IS the
+ * track order. Going multi-track later means new tables, not new columns. */
+export const userTracks = pgTable('user_tracks', {
+  userId: text('user_id').primaryKey(),
+  name: text('name').notNull(),
+  items: jsonb('items').$type<TrackItem[]>().notNull().default([]),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Per-day active time on a practice site, one row per (user, day, site).
+ *
+ * `date` is a tracker-day key (`YYYY-MM-DD` in TRACKER_TZ) stored as text, the
+ * same convention as `plan_days.date` — not a date type, so no timezone
+ * reinterpretation can shift a day. `seconds` is a running total the extension
+ * increments; see `recordTime` in src/lib/time-tracking.ts.
+ */
+export const timeDaily = pgTable('time_daily', {
+  userId: text('user_id').notNull(),
+  date: text('date').notNull(),
+  site: text('site').$type<TimeSite>().notNull(),
+  seconds: integer('seconds').notNull().default(0),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [primaryKey({ columns: [t.userId, t.date, t.site] })]);

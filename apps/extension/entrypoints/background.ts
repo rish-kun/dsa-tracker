@@ -16,8 +16,13 @@ import type {
   SolvedProblem,
   StatsResponse,
   StatsResult,
+  TimeRequest,
+  TimeResponse,
+  TimeSegment,
+  TimeSite,
   Totals,
 } from '@dsa-tracker/shared';
+import { TIME_SITES, trackerDateKey } from '@dsa-tracker/shared';
 import type { MarkSolvedResult } from '../lib/messaging';
 
 /**
@@ -36,6 +41,21 @@ const K_CACHE = 'solvedCache'; // v1, retained only for migration
 const K_PENDING = 'pendingSolves'; // v1, retained only for migration
 const K_STATE = 'trackerStateV2';
 const STORAGE_VERSION = 2;
+/** Pending active-time buckets. Deliberately its own storage key rather than a
+ * field on ExtensionState: time tracking is decoration and must not drag the
+ * solve queue's migration path (and its STORAGE_VERSION) along with it. */
+const K_TIME = 'timeBucketsV1';
+
+/** Flush once a profile has this much unreported time… */
+const TIME_FLUSH_SECONDS = 60;
+/** …or this long after its last *successful* flush, so a trickle still lands. */
+const TIME_FLUSH_STALE_MS = 5 * 60_000;
+/** Floor between POSTs so a failing backend is retried, not hammered. */
+const TIME_ATTEMPT_INTERVAL_MS = 60_000;
+/** Nobody spends 6h on one site in one day; anything larger is a stuck clock. */
+const TIME_BUCKET_MAX_SECONDS = 6 * 60 * 60;
+/** An unauthenticated user keeps accruing, so bound what is retained. */
+const TIME_RETAIN_DAYS = 14;
 
 interface SolvedCache {
   version: number;
@@ -87,6 +107,20 @@ interface ExtensionState {
   legacyPending: QueuedSolve[];
 }
 
+/** Pending active time for one profile. Keyed by `${date}|${site}` so a plain
+ * JSON object survives chrome.storage round-trips (a Map does not). */
+interface TimeProfileBuckets {
+  buckets: Record<string, number>;
+  /** Last 2xx. Drives the "stale trickle" flush trigger. */
+  lastFlushAt: number;
+  /** Last POST attempt, successful or not. Drives the retry floor. */
+  lastAttemptAt: number;
+}
+
+/** Keyed by profile id: time accrued under one API key must never be posted
+ * with another. */
+type TimeStore = Record<string, TimeProfileBuckets>;
+
 class HttpError extends Error {
   constructor(
     readonly status: number,
@@ -108,6 +142,7 @@ type FlushOutcome = 'ok' | 'retry' | 'unauthorized' | 'missing-key';
 
 let storageSerial: Promise<void> = Promise.resolve();
 const flushInFlight = new Map<string, Promise<FlushOutcome>>();
+const timeFlushInFlight = new Map<string, Promise<void>>();
 
 function normalizeBase(_base?: string): string {
   // Roadmap v2 ships against one backend. Keeping SET_API_BASE in the message
@@ -246,6 +281,30 @@ async function withState<T>(fn: (state: ExtensionState) => Promise<T> | T): Prom
 async function readState(): Promise<ExtensionState> {
   await storageSerial;
   return migrateState();
+}
+
+/**
+ * Read-modify-write on K_TIME, serialized on the *same* chain as `withState` so
+ * ACTIVITY messages arriving from several tabs at once cannot interleave and
+ * lose an increment. Never call `withState`/`readState` from inside `fn` — that
+ * awaits the lock this call is holding and deadlocks.
+ */
+async function withTimeStore<T>(fn: (store: TimeStore) => T): Promise<T> {
+  const previous = storageSerial;
+  let release!: () => void;
+  storageSerial = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await previous;
+  try {
+    const stored = await chrome.storage.local.get(K_TIME);
+    const store = (stored[K_TIME] as TimeStore | undefined) ?? {};
+    const result = fn(store);
+    await chrome.storage.local.set({ [K_TIME]: store });
+    return result;
+  } finally {
+    release();
+  }
 }
 
 function activeProfile(state: ExtensionState): ProfileState {
@@ -525,6 +584,146 @@ async function applySolveToCache(
     }
     profile.cache = cache;
   });
+}
+
+// ---------------------------------------------------------------------------
+// active time tracking
+// ---------------------------------------------------------------------------
+
+function timeBucketKey(date: string, site: TimeSite): string {
+  return `${date}|${site}`;
+}
+
+function emptyTimeBuckets(): TimeProfileBuckets {
+  return { buckets: {}, lastFlushAt: 0, lastAttemptAt: 0 };
+}
+
+function timeBucketsFor(store: TimeStore, id: string): TimeProfileBuckets {
+  const existing = store[id];
+  if (existing) {
+    // Records written before lastAttemptAt existed would otherwise NaN the
+    // retry floor and flush on every single message.
+    if (typeof existing.lastFlushAt !== 'number') existing.lastFlushAt = 0;
+    if (typeof existing.lastAttemptAt !== 'number') existing.lastAttemptAt = 0;
+    if (!existing.buckets) existing.buckets = {};
+    return existing;
+  }
+  const created = emptyTimeBuckets();
+  store[id] = created;
+  return created;
+}
+
+/** Bound retained storage for a profile that cannot upload — an unauthenticated
+ * user must not be able to grow chrome.storage without limit. */
+function pruneTimeBuckets(entry: TimeProfileBuckets): void {
+  const cutoff = trackerDateKey(new Date(Date.now() - TIME_RETAIN_DAYS * 86_400_000));
+  for (const [key, seconds] of Object.entries(entry.buckets)) {
+    // Day keys are YYYY-MM-DD, so a lexicographic compare is a date compare.
+    if (key.slice(0, key.indexOf('|')) < cutoff || !(seconds > 0)) {
+      delete entry.buckets[key];
+    } else if (seconds > TIME_BUCKET_MAX_SECONDS) {
+      entry.buckets[key] = TIME_BUCKET_MAX_SECONDS;
+    }
+  }
+}
+
+function timeSegments(entry: TimeProfileBuckets | undefined): TimeSegment[] {
+  if (!entry) return [];
+  const segments: TimeSegment[] = [];
+  for (const [key, seconds] of Object.entries(entry.buckets)) {
+    const separator = key.indexOf('|');
+    const site = key.slice(separator + 1) as TimeSite;
+    if (seconds > 0 && TIME_SITES.includes(site)) {
+      segments.push({ date: key.slice(0, separator), site, seconds });
+    }
+  }
+  return segments;
+}
+
+function pendingTimeSeconds(entry: TimeProfileBuckets | undefined): number {
+  if (!entry) return 0;
+  let total = 0;
+  for (const seconds of Object.values(entry.buckets)) total += seconds;
+  return total;
+}
+
+/**
+ * Single-flight per profile, mirroring `flushPending`. Buckets are decremented
+ * by exactly what was accepted rather than cleared wholesale, so ACTIVITY
+ * messages that land mid-POST are not silently swallowed. A failure keeps
+ * everything for the next attempt: `/api/time` segments are increments, so the
+ * posture is at-least-once (a lost response over-counts by one batch at most).
+ */
+function flushTime(targetProfileId?: string): Promise<void> {
+  const start = targetProfileId;
+  if (!start) {
+    return readState().then((state) => flushTime(state.activeProfileId));
+  }
+  const existing = timeFlushInFlight.get(start);
+  if (existing) return existing;
+  const job = (async () => {
+    try {
+      const profile = (await readState()).profiles[start];
+      // No key: keep accumulating (pruning caps the growth) so time spent while
+      // the popup is unconfigured still lands once a key is pasted in.
+      if (!profile?.apiKey) return;
+      const now = Date.now();
+      const segments = await withTimeStore((store) => {
+        const entry = timeBucketsFor(store, start);
+        if (now - entry.lastAttemptAt < TIME_ATTEMPT_INTERVAL_MS) return [];
+        pruneTimeBuckets(entry);
+        const pending = timeSegments(entry);
+        if (pending.length) entry.lastAttemptAt = now;
+        return pending;
+      });
+      if (!segments.length) return;
+      await apiPostForProfile<TimeResponse>(profile, '/api/time', { segments } satisfies TimeRequest);
+      await withTimeStore((store) => {
+        const entry = timeBucketsFor(store, start);
+        for (const segment of segments) {
+          const key = timeBucketKey(segment.date, segment.site);
+          const remaining = (entry.buckets[key] ?? 0) - segment.seconds;
+          if (remaining > 0) entry.buckets[key] = remaining;
+          else delete entry.buckets[key];
+        }
+        entry.lastFlushAt = Date.now();
+      });
+    } catch (error) {
+      // Time is decoration. It must never break the solve path, so this is the
+      // one place the failure stops — no auth-state churn, no rethrow.
+      console.warn('[dsa-tracker] time flush failed', error);
+    }
+  })().finally(() => {
+    timeFlushInFlight.delete(start);
+  });
+  timeFlushInFlight.set(start, job);
+  return job;
+}
+
+async function handleActivity(site: TimeSite, date: string, seconds: number): Promise<void> {
+  try {
+    // A content script is not a trusted input source; drop anything malformed
+    // rather than letting it reach the API or poison a bucket key.
+    if (!TIME_SITES.includes(site)) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+    const increment = Math.round(seconds);
+    if (!Number.isFinite(increment) || increment <= 0) return;
+
+    const id = (await readState()).activeProfileId;
+    const { pending, stale } = await withTimeStore((store) => {
+      const entry = timeBucketsFor(store, id);
+      const key = timeBucketKey(date, site);
+      entry.buckets[key] = Math.min(TIME_BUCKET_MAX_SECONDS, (entry.buckets[key] ?? 0) + increment);
+      pruneTimeBuckets(entry);
+      return {
+        pending: pendingTimeSeconds(entry),
+        stale: Date.now() - entry.lastFlushAt >= TIME_FLUSH_STALE_MS,
+      };
+    });
+    if (pending >= TIME_FLUSH_SECONDS || stale) void flushTime(id);
+  } catch (error) {
+    console.warn('[dsa-tracker] activity message failed', error);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1160,6 +1359,8 @@ function route(msg: ExtMessage): Promise<unknown> | undefined {
       return handleRunBackfill();
     case 'RUN_NC_IMPORT':
       return handleRunNcImport();
+    case 'ACTIVITY':
+      return handleActivity(msg.site, msg.date, msg.seconds);
     case 'ROUTE_CHANGED':
       return undefined;
   }
@@ -1186,7 +1387,11 @@ export default defineBackground(() => {
     chrome.alarms.create(REFRESH_ALARM, { periodInMinutes: REFRESH_MINUTES });
   });
   chrome.alarms.onAlarm.addListener((alarm) => {
-    if (alarm.name === REFRESH_ALARM) void syncCache();
+    if (alarm.name !== REFRESH_ALARM) return;
+    void syncCache();
+    // Reuse the existing alarm rather than adding one: the tail of a session
+    // that ended while the API was down otherwise waits for the next solve.
+    void flushTime();
   });
 
   // SPA route detection: notify the tab so content scripts re-check the problem.

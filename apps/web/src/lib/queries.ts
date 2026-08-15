@@ -4,7 +4,7 @@ import type {
   SolvedProblem,
   Totals,
 } from '@dsa-tracker/shared';
-import { and, desc, eq, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import { checkId } from '@dsa-tracker/plan-data';
 import { db, planChecks, problems, solvedProblems, solveEvents } from '@/db';
 
@@ -99,6 +99,8 @@ function normalizeTitle(title: string): string {
     .replace(/[^a-z0-9]/g, '');
 }
 
+export { normalizeTitle };
+
 /** Matches the expression index `problems_title_normalized_idx`. */
 const normalizedTitleSql = sql`regexp_replace(lower(${problems.title}), '[^a-z0-9]', '', 'g')`;
 
@@ -133,6 +135,40 @@ export async function resolveCatalogProblem(
     .orderBy(sql`case when ${problems.lcSlug} = ${slugParam} then 0 else 1 end`)
     .limit(1);
   return row ?? null;
+}
+
+/**
+ * Bulk resolve a mixed batch of slug/title candidates in a single OR'd
+ * statement — the batch counterpart of resolveCatalogProblem, used by
+ * saveTrack() to validate a pasted list with one round trip. Callers match
+ * rows back to inputs via lcSlug equality or normalizeTitle comparison; an
+ * input with no matching row is simply absent from the result.
+ */
+export async function findProblemsBySlugsOrTitles(
+  inputs: { slug?: string; title?: string }[],
+): Promise<ProblemRow[]> {
+  const slugs = [...new Set(inputs.flatMap((i) => (i.slug ? [i.slug] : [])))];
+  const titles = [...new Set(inputs.flatMap((i) => (i.title ? [normalizeTitle(i.title)] : [])))];
+  const conditions = [
+    ...(slugs.length ? [inArray(problems.lcSlug, slugs)] : []),
+    ...(titles.length ? [inArray(normalizedTitleSql, titles)] : []),
+  ];
+  if (conditions.length === 0) return [];
+  return db.select().from(problems).where(or(...conditions));
+}
+
+/**
+ * Every catalog problem whose slug is `base` itself or starts with
+ * `base-` — the candidate pool for sequel-series detection. The roman-numeral
+ * filtering of those candidates lives in tracks.ts; this stays a dumb prefix
+ * scan (the ~4k-row catalog makes an index unnecessary).
+ */
+export async function findProblemsBySlugPrefix(base: string): Promise<ProblemRow[]> {
+  return db
+    .select()
+    .from(problems)
+    .where(or(eq(problems.lcSlug, base), sql`${problems.lcSlug} like ${`${base}-%`}`))
+    .orderBy(asc(problems.lcNumber));
 }
 
 function canonicalValues(problem: ProblemRow) {

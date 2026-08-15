@@ -30,6 +30,7 @@ interface ResponseMap {
   BACKFILL_SLUGS: BackfillResponse;
   GET_STATS: StatsResult;
   ROUTE_CHANGED: void;
+  ACTIVITY: void;
   GET_CACHE: CachedState;
   REFRESH_CACHE: CachedState;
   GET_ACTIVE_PROBLEM: ActiveProblemResult;

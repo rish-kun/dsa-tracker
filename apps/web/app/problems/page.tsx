@@ -1,7 +1,9 @@
 import type { Metadata } from 'next';
 import { EmptyState } from '@/components/EmptyState';
 import { ProblemsTable } from '@/components/ProblemsTable';
+import { TrackPanel } from '@/components/TrackPanel';
 import { getAllSolved } from '@/lib/queries';
+import { getTrack } from '@/lib/tracks';
 import { requireUser } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
@@ -20,7 +22,12 @@ async function loadRows(userId: string) {
 }
 
 export default async function ProblemsPage() {
-  const rows = await loadRows(await requireUser());
+  const userId = await requireUser();
+  const rows = await loadRows(userId);
+  // Sequential on purpose: the postgres.js client is max: 1. getTrack never
+  // throws, so an unreachable DB still renders the page without a track.
+  const track = await getTrack(userId);
+  const solvedKeys = new Set(rows.map((row) => row.canonicalKey));
 
   return (
     <main className="page">
@@ -28,6 +35,12 @@ export default async function ProblemsPage() {
         <h1 className="page-title">Solved problems</h1>
         <p className="page-subtitle">Every unique problem you've cleared, across every source.</p>
       </div>
+
+      <TrackPanel
+        name={track?.name ?? null}
+        items={track?.items ?? []}
+        solvedKeys={solvedKeys}
+      />
 
       {rows.length === 0 ? (
         <EmptyState
