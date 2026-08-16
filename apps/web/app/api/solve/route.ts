@@ -1,6 +1,7 @@
 import type { SolveRequest, SolveResponse } from '@dsa-tracker/shared';
 import { NextRequest, NextResponse } from 'next/server';
 import { getTotals, recordSolve } from '@/lib/queries';
+import { computeNextUp } from '@/lib/tracks';
 import { requireApiUser, unauthorizedApiResponse } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
@@ -26,6 +27,9 @@ export async function POST(request: NextRequest) {
 
   const { isNew, entry, alreadySolved } = await recordSolve(userId, body);
   const totals = await getTotals(userId);
-  const res: SolveResponse = { isNew, entry, alreadySolved, totals };
+  // Decoration only — computeNextUp never throws, so the solve itself can't
+  // fail because of it.
+  const nextUp = await computeNextUp(userId, entry.canonicalKey);
+  const res: SolveResponse = { isNew, entry, alreadySolved, totals, nextUp };
   return NextResponse.json(res, { headers: { 'Cache-Control': 'no-store', Vary: 'Authorization' } });
 }

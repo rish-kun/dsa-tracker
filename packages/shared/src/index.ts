@@ -50,6 +50,21 @@ export interface SolveRequest {
   detected: Detected;
 }
 
+/**
+ * What the banner should link to after a solve: the next unsolved problem in
+ * the user's track, or — only when the track has nothing to offer — the next
+ * unsolved part of a multi-part series (Next Greater Element I → II → III).
+ * Additive optional on SolveResponse, so older extensions simply ignore it.
+ */
+export interface NextUp {
+  kind: 'track' | 'sequel';
+  /** Display title, e.g. "503. Next Greater Element II". */
+  title: string;
+  url: string;
+  /** Track only: unsolved items remaining in the track. */
+  remaining?: number;
+}
+
 /** POST /api/solve response. */
 export interface SolveResponse {
   isNew: boolean;
@@ -57,6 +72,8 @@ export interface SolveResponse {
   entry: SolvedProblem | null;
   alreadySolved: SolvedProblem | null;
   totals: Totals;
+  /** Suggested next problem, or null when neither track nor series has one. */
+  nextUp?: NextUp | null;
 }
 
 export interface Totals {
@@ -109,6 +126,71 @@ export interface ImportResponse {
   totals: Totals;
 }
 
+// ---------------------------------------------------------------------------
+// Time tracking
+// ---------------------------------------------------------------------------
+
+/**
+ * The IANA zone every tracker day key is bucketed in. Hardcoded rather than
+ * "the browser's local zone" so a day boundary means the same thing in the
+ * extension, the API and the dashboard even when travelling — matching
+ * `PLAN_TZ` in packages/plan-data, which does the same for /plan.
+ */
+export const TRACKER_TZ = 'Asia/Kolkata';
+
+/**
+ * `YYYY-MM-DD` for an instant in TRACKER_TZ. Never use `toISOString()` for a
+ * day key: that is UTC and rolls the day over at the wrong local time.
+ * `en-CA` formats as `YYYY-MM-DD`, which is exactly the key format.
+ */
+export function trackerDateKey(at: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: TRACKER_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(at);
+}
+
+/** The practice sites whose active tab time is measured. Deliberately the
+ * solve `Source` values minus `backfill`, which is not a site. */
+export type TimeSite = Exclude<Source, 'backfill'>;
+
+export const TIME_SITES: TimeSite[] = ['leetcode', 'neetcode', 'tuf', 'gfg'];
+
+/** Active seconds accumulated on one site during one tracker day. */
+export interface TimeSegment {
+  /** Tracker-day key from `trackerDateKey`. */
+  date: string;
+  site: TimeSite;
+  seconds: number;
+}
+
+/**
+ * POST /api/time request body. Segments are **increments**, not totals: the
+ * server adds them to whatever it already holds for that (date, site). The
+ * extension therefore sends each accumulated batch exactly once and only
+ * clears it after a 2xx, so a dropped response can over-count by at most one
+ * flush interval — the same at-least-once posture as the solve queue.
+ */
+export interface TimeRequest {
+  segments: TimeSegment[];
+}
+
+export interface TimeResponse {
+  /** Segments actually applied (malformed ones are skipped, not fatal). */
+  applied: number;
+  /** Total active seconds today, after applying this batch. */
+  todaySeconds: number;
+}
+
+/** One day's tracked time, per site plus the day's total. */
+export interface DailyTime {
+  date: string;
+  seconds: number;
+  bySite: Record<TimeSite, number>;
+}
+
 /** GET /api/stats response. */
 export interface StatsResponse {
   totals: Totals;
@@ -127,6 +209,9 @@ export type ExtMessage =
   | { type: 'BACKFILL_SLUGS'; slugs: string[] }
   | { type: 'GET_STATS' }
   | { type: 'ROUTE_CHANGED' }
+  /** Active-tab time measured by the activity content script since its last
+   * report. Fire-and-forget: the service worker accumulates and flushes. */
+  | { type: 'ACTIVITY'; site: TimeSite; date: string; seconds: number }
   // popup -> service worker
   | { type: 'GET_CACHE' }
   | { type: 'REFRESH_CACHE' }

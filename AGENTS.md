@@ -28,7 +28,7 @@ pnpm dev                   # Next.js web app + API on http://localhost:3000
 pnpm dev:ext               # WXT dev mode (launches browser with extension)
 pnpm build                 # build all workspaces
 pnpm db:generate           # drizzle-kit: generate migration from schema changes
-pnpm db:migrate            # apply migrations (all 7 are applied; guarded — see below)
+pnpm db:migrate            # apply migrations (all 9 are applied; guarded — see below)
 pnpm auth:backfill         # assign user_id to pre-auth rows (DRY RUN unless --commit)
 pnpm db:seed               # import LeetCode catalog (~4k rows) into `problems`
 pnpm plan:keys             # re-resolve canonicalKey in packages/plan-data
@@ -64,10 +64,10 @@ dotenv and Next.js let pre-existing env vars win over `.env`. Never read bare
 Four workspaces (`pnpm-workspace.yaml` globs `apps/*` + `packages/*`, so new
 packages need no config change): `apps/web` (Next.js 16 App Router — `/`
 dashboard (`app/page.tsx`), `/plan` tracker (`app/plan/page.tsx`), `/problems`
-table (`app/problems/page.tsx`), `/settings` (`app/settings/page.tsx`,
+table + track panel (`app/problems/page.tsx`), `/settings` (`app/settings/page.tsx`,
 extension API key management), `/setup` (`app/setup/page.tsx`, the extension
 install walkthrough) and the Clerk catch-alls
-`/sign-in/[[...sign-in]]` + `/sign-up/[[...sign-up]]` — plus all 7 API routes
+`/sign-in/[[...sign-in]]` + `/sign-up/[[...sign-up]]` — plus all 8 API routes
 and the Drizzle schema), `apps/extension` (WXT +
 
 **Onboarding.** `<SignUp forceRedirectUrl="/setup">` sends every new account to
@@ -148,7 +148,26 @@ from leetcode.com/api/problems/all/), `solved_problems` (one row per unique
 key — this table IS the counter), `solve_events` (append-only audit log; a
 repeat solve writes an event but not a solved_problems row). `POST /api/solve`
 returns `isNew: false` + the existing entry for repeats — that's the dedup
-signal the banner relies on.
+signal the banner relies on. The response also carries an optional `nextUp`
+(the user's track's next unsolved problem, else the next unsolved part of a
+multi-part series — track wins when both apply), computed by
+`src/lib/tracks.ts` and rendered as a link on the recorded banner; it is
+decoration and never breaks the solve.
+
+**The `/problems` track** (`user_tracks`, one row per user, ordered jsonb
+`items` of catalog snapshots saved by `saveTrack`; migration `0007`, RLS on):
+a curated list whose progress is *always* derived by intersecting `lc:<slug>`
+item keys with `solved_problems` — the track stores no progress of its own.
+Edits go through `saveTrackAction` (`app/problems/actions.ts`) →
+`saveTrack()`, which resolves pasted lines (URL / titleSlug / title) against
+the catalog in one query and refuses to save unknown lines. Going multi-track
+means new tables, not new columns. Design: `docs/plans/2026-08-15-tracks-and-sequel-next-design.md`.
+
+**Time tracking** (`time_daily`, PK `(user_id, date, site)`; migration `0008`,
+RLS on): active-tab seconds on the four practice sites, bucketed per tracker
+day. The extension is the only thing that can see tab focus, so it measures
+and POSTs **increments** to `/api/time`; `src/lib/time-tracking.ts` is the only
+writer. Details in **Time tracking** below.
 
 The LeetCode history backfill runs `chrome.scripting.executeScript` inside a
 leetcode.com tab (first-party session cookies apply there) paginating GraphQL
@@ -192,7 +211,9 @@ re-implement any of it inline in a route, page or action:
   `CATALOG_REFRESH_SECRET` (plus the two bridge vars). See
   `apps/web/.env.example`.
 - RLS is enabled on `solved_problems`, `solve_events`, `plan_checks`,
-  `plan_days`, `plan_counters` by `drizzle/0006_enable_user_table_rls.sql` (no
+  `plan_days`, `plan_counters` by `drizzle/0006_enable_user_table_rls.sql`, on
+  `user_tracks` by `drizzle/0007_user_tracks.sql`, and on `time_daily` by
+  `drizzle/0008_time_daily.sql` (no
   policies — the server connects as the DB role, so direct Data API access is
   denied). **Any new user-owned table must get `user_id` + RLS the same way.**
 
@@ -298,16 +319,24 @@ time.
   `dsa_extra` integers default 0, `dsa_hist` / `dsa_extra_hist` jsonb default
   `'[]'` (undo stacks of raw increments).
 
-All seven migrations (`0000_charming_red_hulk` … `0006_enable_user_table_rls`)
-are applied to the Supabase database. The defensive `/plan` read fallbacks
-still matter for builds and temporary DB outages, but writes are expected to
-work without further migration setup.
+**All nine migrations (`0000_charming_red_hulk` … `0008_time_daily`) are
+applied to the Supabase database** (verified 2026-08-16). Verify rather than
+assume when it matters — `select table_name from information_schema.tables
+where table_schema='public'` is the ground truth, and
+`drizzle.__drizzle_migrations` holds the applied count. This claim has been
+wrong in this file before. Note the asymmetry that makes an unapplied migration
+easy to miss: the never-throwing reads (`getTrack`, `getDailyTime`) degrade
+silently to empty state, while `saveTrack` and `recordTime` do not catch, so a
+missing table shows up only as a 500 on write. The defensive `/plan` read
+fallbacks still matter for builds and temporary DB outages, but writes are
+expected to work without further migration setup.
 
-**Trap: `apps/web/drizzle/meta/` has snapshots for `0000`–`0003` and `0006`
-but NOT `0004`/`0005`** — those two were hand-authored (`0004_user_ownership`,
-`0005_finalize_user_ownership`) rather than generated. A future
+**Trap: `apps/web/drizzle/meta/` has snapshots for `0000`–`0003`, `0006`,
+`0007` and `0008` but NOT `0004`/`0005`** — those two were hand-authored
+(`0004_user_ownership`, `0005_finalize_user_ownership`) rather than generated,
+as were the `0007`/`0008` snapshot extensions. A future
 `drizzle-kit generate` diffs against the snapshot chain, so it can emit a
-migration that re-adds or re-alters columns those two already changed. Inspect
+migration that re-adds or re-alters columns those already changed. Inspect
 generated SQL before committing it, and prefer hand-authoring a follow-up
 migration over trusting the diff.
 
@@ -349,10 +378,14 @@ open plan refreshes these server-derived values when its tab regains focus.
 **Mutations use Server Actions.** Plan writes (ticks, floors, trip, day logs,
 counters) go through `app/plan/actions.ts` — thin wrappers that call
 `src/lib/plan-state.ts` and `revalidatePath('/plan')`. **No new `/api/*` route
-was added for the plan; there are still exactly 7.** `/api/*` stays the
-**extension's** open contract, versioned by `packages/shared`, and was
-deliberately not widened — do not add plan endpoints there, and do not route
-extension traffic through Server Actions.
+was added for the plan, and none for the `/problems` track either — both use
+Server Actions.** `/api/*` stays the **extension's** open contract, versioned
+by `packages/shared`: a route earns its place there only when the *extension*
+needs it. That is why `nextUp` rides on the existing `/api/solve` response
+rather than getting a route, and why `POST /api/time` — which only the
+extension can produce data for — does get one. The count is now **8**. Do not
+add first-party page endpoints there, and do not route extension traffic
+through Server Actions.
 
 **`apps/web/proxy.ts` is `clerkMiddleware`.** It sets **no CORS headers** —
 there are zero `Access-Control-*` headers anywhere in this repo; do not claim
@@ -372,6 +405,53 @@ deliberately **do not catch**, so a failed mutation surfaces instead of
 silently no-opping. All DB reads on the page are sequential, never
 `Promise.all`: the postgres.js client is `max: 1` and a fan-out stalls the
 Supabase transaction pooler.
+
+## Time tracking
+
+Active time on the four practice sites, per day and per site. Design:
+`docs/plans/2026-08-16-active-time-tracking-design.md`.
+
+**"Active" is a three-way AND**, checked every 5 s in
+`apps/extension/entrypoints/activity.content.ts`: `visibilityState === 'visible'`
+(foreground tab) **and** `document.hasFocus()` (focused window) **and** a user
+interaction within 120 s (not walked away). That trio was chosen because it
+needs **no new permission** — `chrome.idle` would be cheaper for the last one
+but adds a user-visible install prompt. The permission list is unchanged.
+Two windows cannot both be focused and `all_frames` is unset, so no tab
+arrangement double-counts.
+
+**That content script is deliberately NOT a `SiteAdapter`.** The solve
+entrypoints are scoped to each site's `/problems/*`, but time on an editorial or
+a problem list is still practice time, so this one matches all four hosts
+site-wide. Do not fold it into the adapter runner.
+
+**Day keys come from `trackerDateKey()` in `packages/shared`** (`TRACKER_TZ` =
+`Asia/Kolkata`), the same posture `localDateKey`/`PLAN_TZ` take for `/plan`.
+The key is resolved **at accrual time**, not at flush time, so a session
+crossing midnight splits. Never `toISOString()`. `time_daily.date` is `text`
+like `plan_days.date`, so nothing can reinterpret it into a neighbouring day.
+
+**Segments are increments, not totals.** `POST /api/time` does
+`seconds = time_daily.seconds + excluded.seconds`, which is what lets two
+devices add up. `recordTime` **must merge duplicate `(date, site)` pairs before
+inserting** — Postgres rejects an `ON CONFLICT DO UPDATE` whose `VALUES` list
+hits one primary key twice, and a batch can legitimately carry two segments for
+the same day and site. At-least-once: the extension clears a batch only after a
+2xx, and on success subtracts *exactly the segments it sent* rather than
+clearing the map, so `ACTIVITY` messages landing mid-POST are not swallowed.
+
+**Service worker state lives under its own storage key** (`K_TIME =
+'timeBucketsV1'`), not on `ExtensionState` — so time tracking never drags the
+solve queue's `STORAGE_VERSION` migration path along. `withTimeStore` chains on
+the *same* `storageSerial` as `withState`, so never call `withState`/`readState`
+inside its callback (it awaits the lock it is holding — deadlock). Buckets are
+keyed by profile id: time accrued under one API key is never posted with
+another. `flushTime` reuses the existing `REFRESH_ALARM`; do not add an alarm.
+
+**It is decoration and must never cost a solve.** `handleActivity` and
+`flushTime` catch and warn without touching `authState`; `getDailyTime` /
+`getDayTotal` never throw. `recordTime` deliberately *does* propagate, so a real
+write failure 5xxes and the extension retains and retries.
 
 ## Styling — two coexisting idioms in one stylesheet
 
@@ -406,7 +486,8 @@ Token gotchas:
   Use `-ink` for text on a filled `-bg` tint, and reserve it for *selected*
   controls — plain badges stay `-bg` + `-X`.
 - Domain tokens exist and should be used rather than re-picking colours:
-  `--pt-src-{leetcode,neetcode,tuf,backfill,other}` and
+  `--pt-src-{leetcode,neetcode,tuf,gfg,backfill,other}` — each with a matching
+  `.src-<name>` background class used for swatches, bars and stack bands — and
   `--pt-diff-{easy,medium,hard}`.
 - Also defined: shadcn compat aliases (`--background`, `--card`, `--muted`, …)
   mapped onto `--pt-*`. Change the `--pt-*` value, not the alias.

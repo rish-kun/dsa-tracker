@@ -9,10 +9,12 @@ import type { CumulativePoint } from '@/components/SolvesOverTimeChart';
 import { SolvesOverTimeChart } from '@/components/SolvesOverTimeChart';
 import { SourceBars } from '@/components/SourceBars';
 import { StreakPanel } from '@/components/StreakPanel';
+import { TimeSpentPanel } from '@/components/TimeSpentPanel';
 import { WeeklyPacePanel } from '@/components/WeeklyPacePanel';
 import { getDashboardExtras, getDashboardStats } from '@/lib/dashboard-stats';
 import { requireUser } from '@/lib/auth';
 import { getExtensionStatus } from '@/lib/extension-status';
+import { getDailyTime } from '@/lib/time-tracking';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,9 +24,18 @@ export default async function DashboardPage() {
   // concurrent fan-out stalls the Supabase transaction pooler.
   const stats = await getDashboardStats(userId);
   const extras = await getDashboardExtras(userId);
+  // Same reason — another sequential await rather than joining the fan-out.
+  const dailyTime = await getDailyTime(userId);
   // Clerk, not Postgres — so it does not contend with the `max: 1` client above.
   const extensionStatus = await getExtensionStatus(userId);
   const isEmpty = stats.totals.lcUnique === 0 && stats.totals.other === 0;
+
+  // Tracked time is independent of solves — a user can rack up hours on a
+  // problem they never finish — so the panel lives outside the `isEmpty`
+  // branch. It is still hidden when there is nothing to show, so a brand-new
+  // account sees only the onboarding empty state.
+  const trackedSeconds = dailyTime.reduce((sum, d) => sum + d.seconds, 0);
+  const showTimeSpent = trackedSeconds > 0 || !isEmpty;
 
   let running = 0;
   const cumulative: CumulativePoint[] = stats.overTime.map((d) => {
@@ -68,6 +79,8 @@ export default async function DashboardPage() {
           </div>
         </>
       )}
+
+      {showTimeSpent && <TimeSpentPanel days={dailyTime} />}
     </main>
   );
 }

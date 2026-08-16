@@ -1,3 +1,4 @@
+import type { NextUp } from '@dsa-tracker/shared';
 import ReactDOM from 'react-dom/client';
 import type { ContentScriptContext } from 'wxt/utils/content-script-context';
 import { createShadowRootUi } from 'wxt/utils/content-script-ui/shadow-root';
@@ -6,7 +7,7 @@ import { createShadowRootUi } from 'wxt/utils/content-script-ui/shadow-root';
 export type BannerState =
   | { kind: 'already-solved'; title: string; source: string; date: string }
   | { kind: 'prompt'; title: string; busy?: boolean }
-  | { kind: 'recorded'; isNew: boolean; total: number; label: string }
+  | { kind: 'recorded'; isNew: boolean; total: number; label: string; next?: NextUp }
   | { kind: 'queued' }
   | { kind: 'rejected'; message: string }
   | { kind: 'needs-auth'; message: string };
@@ -189,6 +190,19 @@ const CSS = `
   cursor:pointer;transition:background-color .15s ease;}
 .dsa-btn:hover:not(:disabled){background:color-mix(in srgb,var(--pt-blue) 85%,var(--pt-text));}
 .dsa-btn:disabled{opacity:0.55;cursor:default;}
+/* Next-problem suggestion (track / sequel series) on the recorded card.
+   --pt-blue-ink is the contrasting ink for the --pt-blue-bg tint; a same-tab
+   anchor is deliberate — clicking it means "move on to this problem now". */
+.dsa-next{display:flex;align-items:baseline;gap:8px;margin-top:12px;padding:10px 12px;
+  border:1px solid var(--pt-border);border-radius:8px;text-decoration:none;
+  background:var(--pt-blue-bg);transition:border-color .15s ease;}
+.dsa-next:hover{border-color:var(--pt-blue);}
+.dsa-next-label{flex:0 0 auto;font-size:10px;font-weight:600;text-transform:uppercase;
+  letter-spacing:0.06em;color:var(--pt-blue-ink);}
+.dsa-next-title{flex:1 1 auto;color:var(--pt-blue-ink);font-weight:600;font-size:13px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.dsa-next-remaining{flex:0 0 auto;color:var(--pt-text-2);font-size:11.5px;}
+.dsa-next::after{content:'→';flex:0 0 auto;color:var(--pt-blue-ink);font-size:13px;}
 `;
 
 function Card({ view }: { view: BannerView }) {
@@ -250,6 +264,17 @@ function Card({ view }: { view: BannerView }) {
             <span className="dsa-meta">{state.label}</span>:{' '}
             <span className="dsa-big">{state.total}</span>
           </div>
+          {state.next && (
+            <a className="dsa-next" href={state.next.url}>
+              <span className="dsa-next-label">
+                {state.next.kind === 'track' ? 'Next in track' : 'Next part'}
+              </span>
+              <span className="dsa-next-title">{state.next.title}</span>
+              {state.next.kind === 'track' && typeof state.next.remaining === 'number' && (
+                <span className="dsa-next-remaining">{state.next.remaining} left</span>
+              )}
+            </a>
+          )}
         </>
       )}
       {state.kind === 'queued' && (

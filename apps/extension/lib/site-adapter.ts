@@ -115,11 +115,15 @@ export function createSiteAdapterRunner(
       return;
     }
     const total = adapter.totalFor(payload, result.totals);
+    const next = result.nextUp ?? undefined;
     b.update({
-      state: { kind: 'recorded', isNew: result.isNew, ...total },
+      state: { kind: 'recorded', isNew: result.isNew, ...total, next },
       onClose: () => void removeBanner(),
     });
-    ctx.setTimeout(() => void removeBanner(), 5000);
+    // The recorded card normally self-dismisses, but a next-problem link would
+    // vanish before it can be clicked — keep it until closed or navigated away
+    // (route changes remove the banner anyway).
+    if (!next) ctx.setTimeout(() => void removeBanner(), 5000);
   }
 
   async function mark(payload: SolveRequest, checkRun: number): Promise<void> {
@@ -214,7 +218,9 @@ export function createSiteAdapterRunner(
     // let a delayed network result overwrite a newer banner.
     const checkRun = ++run;
     const result = await sendMessage({ type: 'MARK_SOLVED', payload });
-    if (result.queued || result.isNew || needsAuth(result)) {
+    // nextUp: a repeat solve of an already-counted problem still deserves the
+    // banner when there's a next-problem suggestion to show.
+    if (result.queued || result.isNew || needsAuth(result) || result.nextUp) {
       await showRecorded(payload, result, checkRun);
     }
   }

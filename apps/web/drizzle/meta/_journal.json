@@ -50,6 +50,20 @@
       "when": 1785700000002,
       "tag": "0006_enable_user_table_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786848000000,
+      "tag": "0007_user_tracks",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1786934400000,
+      "tag": "0008_time_daily",
+      "breakpoints": true
     }
   ]
 }
