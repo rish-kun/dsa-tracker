@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react';
-import type { ActiveProblemResult, SolvedProblem, StatsResult } from '@dsa-tracker/shared';
+import type {
+  ActiveProblemResult,
+  SolvedProblem,
+  StatsResult,
+  TimeResult,
+} from '@dsa-tracker/shared';
+import { formatDuration } from '@dsa-tracker/shared';
 import { sendMessage } from '../../lib/messaging';
 
 // Explicit locale so the rendered string is stable regardless of the host
@@ -25,18 +31,23 @@ export function App() {
   const [backfillMsg, setBackfillMsg] = useState<string | null>(null);
   const [backfilling, setBackfilling] = useState(false);
   const [activeProblem, setActiveProblem] = useState<ActiveProblemResult | null>(null);
+  const [time, setTime] = useState<TimeResult | null>(null);
   const [markingCurrent, setMarkingCurrent] = useState(false);
   const [currentMsg, setCurrentMsg] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
     try {
-      const [res, current] = await Promise.all([
+      const [res, current, today] = await Promise.all([
         sendMessage({ type: 'GET_STATS' }),
         sendMessage({ type: 'GET_ACTIVE_PROBLEM' }),
+        // Never let the time read fail the whole load — it is the least
+        // important of the three and the service worker already swallows.
+        sendMessage({ type: 'GET_TIME' }).catch(() => null),
       ]);
       setData(res);
       setActiveProblem(current);
+      setTime(today);
     } finally {
       // Must clear on rejection too, or Refresh stays disabled forever.
       setLoading(false);
@@ -178,6 +189,15 @@ export function App() {
         <div className="count">
           <span className="num small">{totals.other}</span>
           <span className="lbl">other (non-LC)</span>
+        </div>
+        <div className="count count-time">
+          <span className="num small">{formatDuration(time?.todaySeconds ?? 0)}</span>
+          <span className="lbl">
+            today
+            {/* Only worth surfacing when it is not yet on the server — an
+                unsynced figure may be missing time from another device. */}
+            {time && !time.synced && time.todaySeconds > 0 ? ' · local' : ''}
+          </span>
         </div>
       </section>
 

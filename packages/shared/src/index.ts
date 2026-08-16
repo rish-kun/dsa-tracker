@@ -191,6 +191,31 @@ export interface DailyTime {
   bySite: Record<TimeSite, number>;
 }
 
+/**
+ * Response to the popup's GET_TIME. `todaySeconds` is what the user should see:
+ * the server-confirmed total plus whatever is still queued locally, so the
+ * number never dips while a flush is in flight.
+ */
+export interface TimeResult {
+  /** Tracker-day key the figure belongs to. */
+  date: string;
+  todaySeconds: number;
+  /** Of that total, the part not yet accepted by the server. */
+  pendingSeconds: number;
+  /** False when no flush has ever succeeded for this day — the figure is then
+   * local-only and may not include time recorded on another device. */
+  synced: boolean;
+}
+
+/** "1h 24m" / "24m" / "48s". Lives here so the dashboard panel and the
+ * extension popup cannot drift into formatting the same number differently. */
+export function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${Math.max(0, Math.round(seconds))}s`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
 /** GET /api/stats response. */
 export interface StatsResponse {
   totals: Totals;
@@ -213,6 +238,8 @@ export type ExtMessage =
    * report. Fire-and-forget: the service worker accumulates and flushes. */
   | { type: 'ACTIVITY'; site: TimeSite; date: string; seconds: number }
   // popup -> service worker
+  /** Today's tracked time for the popup. Flushes first so the figure is fresh. */
+  | { type: 'GET_TIME' }
   | { type: 'GET_CACHE' }
   | { type: 'REFRESH_CACHE' }
   | { type: 'GET_ACTIVE_PROBLEM' }

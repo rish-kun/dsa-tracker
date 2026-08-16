@@ -18,6 +18,7 @@ import type {
   StatsResult,
   TimeRequest,
   TimeResponse,
+  TimeResult,
   TimeSegment,
   TimeSite,
   Totals,
@@ -115,6 +116,13 @@ interface TimeProfileBuckets {
   lastFlushAt: number;
   /** Last POST attempt, successful or not. Drives the retry floor. */
   lastAttemptAt: number;
+  /** Server-confirmed total for `todayDate`, straight off the last flush
+   * response. The popup adds still-pending seconds to it rather than asking
+   * the API again, so opening the popup costs no extra round trip — and the
+   * figure includes time this device never saw (another browser, another
+   * machine), which a local-only sum could not. */
+  todayDate?: string;
+  todaySeconds?: number;
 }
 
 /** Keyed by profile id: time accrued under one API key must never be posted
@@ -677,7 +685,12 @@ function flushTime(targetProfileId?: string): Promise<void> {
         return pending;
       });
       if (!segments.length) return;
-      await apiPostForProfile<TimeResponse>(profile, '/api/time', { segments } satisfies TimeRequest);
+      const res = await apiPostForProfile<TimeResponse>(profile, '/api/time', {
+        segments,
+      } satisfies TimeRequest);
+      // Stamp the day the response describes *before* awaiting the store, so a
+      // flush that straddles midnight cannot label the total with the new day.
+      const flushedDate = trackerDateKey();
       await withTimeStore((store) => {
         const entry = timeBucketsFor(store, start);
         for (const segment of segments) {
@@ -687,6 +700,10 @@ function flushTime(targetProfileId?: string): Promise<void> {
           else delete entry.buckets[key];
         }
         entry.lastFlushAt = Date.now();
+        if (typeof res?.todaySeconds === 'number') {
+          entry.todayDate = flushedDate;
+          entry.todaySeconds = res.todaySeconds;
+        }
       });
     } catch (error) {
       // Time is decoration. It must never break the solve path, so this is the
@@ -698,6 +715,41 @@ function flushTime(targetProfileId?: string): Promise<void> {
   });
   timeFlushInFlight.set(start, job);
   return job;
+}
+
+/**
+ * Today's tracked time for the popup: the server-confirmed total from the last
+ * flush plus whatever is still queued locally. Summing the two (rather than
+ * reporting either alone) is what keeps the number monotonic — local-only would
+ * drop to zero the instant a flush succeeded, and server-only would sit still
+ * while the user is actively practising.
+ */
+async function handleGetTime(): Promise<TimeResult> {
+  const date = trackerDateKey();
+  try {
+    // Best effort: a fresh figure is worth one round trip when the popup opens,
+    // but a backend that is down must still render the local number.
+    await flushTime();
+  } catch {
+    // flushTime already swallows; this is belt-and-braces for the readState leg.
+  }
+  try {
+    const id = (await readState()).activeProfileId;
+    return await withTimeStore((store) => {
+      const entry = timeBucketsFor(store, id);
+      let pendingSeconds = 0;
+      for (const [key, seconds] of Object.entries(entry.buckets)) {
+        if (key.slice(0, key.indexOf('|')) === date) pendingSeconds += seconds;
+      }
+      // A stamp from an earlier day says nothing about today's total.
+      const synced = entry.todayDate === date;
+      const confirmed = synced ? (entry.todaySeconds ?? 0) : 0;
+      return { date, todaySeconds: confirmed + pendingSeconds, pendingSeconds, synced };
+    });
+  } catch (error) {
+    console.warn('[dsa-tracker] time read failed', error);
+    return { date, todaySeconds: 0, pendingSeconds: 0, synced: false };
+  }
 }
 
 async function handleActivity(site: TimeSite, date: string, seconds: number): Promise<void> {
@@ -1361,6 +1413,8 @@ function route(msg: ExtMessage): Promise<unknown> | undefined {
       return handleRunNcImport();
     case 'ACTIVITY':
       return handleActivity(msg.site, msg.date, msg.seconds);
+    case 'GET_TIME':
+      return handleGetTime();
     case 'ROUTE_CHANGED':
       return undefined;
   }

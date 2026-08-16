@@ -142,10 +142,7 @@ export async function getDailyTime(userId: string, days = 14): Promise<DailyTime
   return window;
 }
 
-/** "1h 24m" / "24m" / "48s" — compact enough for a stat tile. */
-export function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${Math.max(0, Math.round(seconds))}s`;
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
-  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
-}
+/** Re-exported so callers keep importing their time helpers from one module.
+ * The implementation lives in the shared package because the extension popup
+ * renders the same figure and the two must not drift. */
+export { formatDuration } from '@dsa-tracker/shared';

@@ -143,10 +143,30 @@ instead. First-party page mutations still use Server Actions.
 | Bucket store + flush | `apps/extension/entrypoints/background.ts` (`K_TIME`, `withTimeStore`, `flushTime`, `handleActivity`) |
 | "Time on task" panel + `.time-*` classes | `apps/web/src/components/TimeSpentPanel.tsx`, `app/globals.css`, wired in `app/page.tsx` |
 
+## Showing it in the popup
+
+The popup's third stat tile is today's total, fetched with `GET_TIME`.
+
+Reading the local bucket store alone would be wrong twice over: it holds only
+*un-flushed* seconds, so the figure would drop to zero the instant a flush
+succeeded, and it cannot know about time recorded on another device. Asking the
+API on every popup open would be a wasted round trip.
+
+So the service worker caches `todaySeconds` from each flush response — the
+existing `TimeResponse` already carries it, which is why no `GET /api/time`
+route was needed — stamped with the day it describes. `GET_TIME` flushes
+(best effort), then returns **cached server total + still-pending seconds for
+today**. That sum is monotonic across a flush, and a stamp from an earlier day
+is discarded rather than shown against today.
+
+When no flush has ever succeeded for the current day the tile is labelled
+`today · local`, because the figure is then this device's view only.
+`formatDuration` lives in `packages/shared` so the tile and the dashboard panel
+cannot drift into formatting the same number differently.
+
 ## Known gaps
 
-- **The popup does not show today's time.** Doing it honestly needs a
-  `GET_TIME` message (reading the bucket store directly would show only
-  *un-flushed pending* seconds, which reads as a wrong number). Small follow-up.
 - **No backfill.** Time before this shipped does not exist and cannot be
   reconstructed; the panel's window fills in from first use.
+- **No per-site split in the popup.** `TimeResponse` carries only the day
+  total; the dashboard panel is where the per-site breakdown lives.

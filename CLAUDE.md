@@ -453,6 +453,16 @@ another. `flushTime` reuses the existing `REFRESH_ALARM`; do not add an alarm.
 `getDayTotal` never throw. `recordTime` deliberately *does* propagate, so a real
 write failure 5xxes and the extension retains and retries.
 
+**The popup's "today" tile uses `GET_TIME`, not the bucket store.** Buckets hold
+only *un-flushed* seconds, so showing them alone would drop the figure to zero
+the moment a flush succeeded and could never include another device's time. The
+service worker instead caches `todaySeconds` off each flush response (already on
+`TimeResponse` — that is why there is no `GET /api/time`), stamped with the day
+it describes, and `GET_TIME` returns **cached server total + today's pending**.
+A stamp from an earlier day is discarded, and an unsynced day is labelled
+`today · local`. `formatDuration` lives in `packages/shared` so the popup tile
+and the dashboard panel cannot format the same number differently.
+
 ## Styling — two coexisting idioms in one stylesheet
 
 `apps/web/app/globals.css` deliberately contains **two** styling systems, both

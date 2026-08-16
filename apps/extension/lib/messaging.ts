@@ -9,6 +9,7 @@ import type {
   ResolveResponse,
   SolveResponse,
   StatsResult,
+  TimeResult,
 } from '@dsa-tracker/shared';
 
 /** MARK_SOLVED response: a normal SolveResponse plus a `queued` flag set when
@@ -31,6 +32,7 @@ interface ResponseMap {
   GET_STATS: StatsResult;
   ROUTE_CHANGED: void;
   ACTIVITY: void;
+  GET_TIME: TimeResult;
   GET_CACHE: CachedState;
   REFRESH_CACHE: CachedState;
   GET_ACTIVE_PROBLEM: ActiveProblemResult;

@@ -274,6 +274,23 @@ body {
   background: var(--pt-src-leetcode);
 }
 
+/* Time is the only tile whose value is a formatted string rather than an
+   integer — "1h 24m" is six glyphs where a count is two, so it needs both a
+   wider track and a smaller face to survive the 320px popup without
+   ellipsing. Violet keeps it visually distinct from the two solve counts. */
+.count-time {
+  flex: 1.1;
+}
+
+.count-time .num {
+  font-size: 17px;
+  letter-spacing: -0.01em;
+}
+
+.count-time .lbl::before {
+  background: var(--pt-violet);
+}
+
 /* ── Blocks ────────────────────────────────────────────────────────────── */
 
 .block {
