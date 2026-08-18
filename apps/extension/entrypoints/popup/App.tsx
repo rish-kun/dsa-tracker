@@ -5,7 +5,7 @@ import type {
   StatsResult,
   TimeResult,
 } from '@dsa-tracker/shared';
-import { formatDuration } from '@dsa-tracker/shared';
+import { formatDuration, formatStopwatchDuration } from '@dsa-tracker/shared';
 import { sendMessage } from '../../lib/messaging';
 
 // Explicit locale so the rendered string is stable regardless of the host
@@ -106,7 +106,8 @@ export function App() {
       setBackfillMsg(res.error ?? 'Sync failed.');
       return;
     }
-    const summary = `Imported ${res.imported ?? 0} new, skipped ${res.skipped ?? 0} known (${res.collected ?? 0} collected). Unique total now ${res.totals?.lcUnique ?? 0}.`;
+    const total = (res.totals?.lcUnique ?? 0) + (res.totals?.other ?? 0);
+    const summary = `Imported ${res.imported ?? 0} new, skipped ${res.skipped ?? 0} known (${res.collected ?? 0} collected). Total now ${total}.`;
     setBackfillMsg(res.warning ? `${summary} ${res.warning}` : summary);
     await load();
   }
@@ -125,7 +126,7 @@ export function App() {
     }
     setCurrentMsg(res.queued ? 'Saved locally — will sync automatically.' : 'Problem recorded.');
     await load();
-    setActiveProblem({ payload, solved: true, entry: res.entry });
+    setActiveProblem({ ...activeProblem, payload, solved: true, entry: res.entry });
   }
 
   const totals = data?.stats?.totals ?? data?.cache.totals ?? { lcUnique: 0, other: 0 };
@@ -137,6 +138,7 @@ export function App() {
   const authState = data?.cache.authState;
   const keyConfigured = data?.cache.hasApiKey ?? false;
   const canUseApi = authState === 'ok';
+  const todaySolved = data?.stats?.todaySolved?.count ?? data?.cache.todaySolved?.count ?? 0;
 
   return (
     <div className="app">
@@ -183,12 +185,12 @@ export function App() {
 
       <section className="counts">
         <div className="count primary">
-          <span className="num">{totals.lcUnique}</span>
-          <span className="lbl">unique LeetCode</span>
+          <span className="num">{totals.lcUnique + totals.other}</span>
+          <span className="lbl">total</span>
         </div>
         <div className="count">
-          <span className="num small">{totals.other}</span>
-          <span className="lbl">other (non-LC)</span>
+          <span className="num small">{todaySolved}</span>
+          <span className="lbl">solved today</span>
         </div>
         <div className="count count-time">
           <span className="num small">{formatDuration(time?.todaySeconds ?? 0)}</span>
@@ -207,6 +209,16 @@ export function App() {
           <div className="current-title">
             {activeProblem.entry?.title ?? activeProblem.payload.title}
           </div>
+          {activeProblem.problemTime && (
+            <div className="problem-stopwatch" aria-label="Total active time on this problem">
+              <span className="problem-stopwatch-value">
+                {formatStopwatchDuration(activeProblem.problemTime.totalSeconds)}
+              </span>
+              <span className="problem-stopwatch-label">
+                Paused{activeProblem.problemTime.synced ? '' : ' · local'}
+              </span>
+            </div>
+          )}
           {activeProblem.solved ? (
             <div className="current-status">Already tracked ✓</div>
           ) : (

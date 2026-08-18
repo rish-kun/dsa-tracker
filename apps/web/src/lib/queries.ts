@@ -6,7 +6,7 @@ import type {
 } from '@dsa-tracker/shared';
 import { and, asc, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import { checkId } from '@dsa-tracker/plan-data';
-import { db, planChecks, problems, solvedProblems, solveEvents } from '@/db';
+import { db, planChecks, problems, solvedProblems, solveEvents, timeProblemDaily } from '@/db';
 
 type SolvedRow = typeof solvedProblems.$inferSelect;
 type ProblemRow = typeof problems.$inferSelect;
@@ -192,6 +192,40 @@ async function reconcileAlias(
 ): Promise<boolean> {
   const canonical = canonicalValues(problem);
   if (aliasKey === canonical.canonicalKey) return false;
+
+  // Timing begins before a solve, so an nc: alias may have accumulated rows
+  // even when solved_problems has nothing to reconcile yet. Merge those rows
+  // first and keep it inside the solve transaction with the identity upgrade.
+  const aliasTime = await executor
+    .select()
+    .from(timeProblemDaily)
+    .where(and(
+      eq(timeProblemDaily.userId, userId),
+      eq(timeProblemDaily.canonicalKey, aliasKey),
+    ));
+  if (aliasTime.length > 0) {
+    await executor
+      .insert(timeProblemDaily)
+      .values(aliasTime.map((row) => ({
+        ...row,
+        canonicalKey: canonical.canonicalKey,
+        title: canonical.title,
+      })))
+      .onConflictDoUpdate({
+        target: [timeProblemDaily.userId, timeProblemDaily.date, timeProblemDaily.canonicalKey],
+        set: {
+          title: canonical.title,
+          source: sql`case when excluded.updated_at > ${timeProblemDaily.updatedAt} then excluded.source else ${timeProblemDaily.source} end`,
+          url: sql`case when excluded.updated_at > ${timeProblemDaily.updatedAt} then excluded.url else ${timeProblemDaily.url} end`,
+          seconds: sql`${timeProblemDaily.seconds} + excluded.seconds`,
+          updatedAt: sql`greatest(${timeProblemDaily.updatedAt}, excluded.updated_at)`,
+        },
+      });
+    await executor.delete(timeProblemDaily).where(and(
+      eq(timeProblemDaily.userId, userId),
+      eq(timeProblemDaily.canonicalKey, aliasKey),
+    ));
+  }
 
   const [alias] = await executor
     .select()

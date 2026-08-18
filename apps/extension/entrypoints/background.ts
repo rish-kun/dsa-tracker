@@ -9,6 +9,9 @@ import type {
   ImportRequest,
   ImportResponse,
   PageProblemMessage,
+  ProblemTimeContext,
+  ProblemTimeResponse,
+  ProblemTimeResult,
   ResolveResponse,
   SolveRequest,
   SolveResponse,
@@ -45,7 +48,8 @@ const STORAGE_VERSION = 2;
 /** Pending active-time buckets. Deliberately its own storage key rather than a
  * field on ExtensionState: time tracking is decoration and must not drag the
  * solve queue's migration path (and its STORAGE_VERSION) along with it. */
-const K_TIME = 'timeBucketsV1';
+const K_TIME_LEGACY = 'timeBucketsV1';
+const K_TIME = 'timeBucketsV2';
 
 /** Flush once a profile has this much unreported time… */
 const TIME_FLUSH_SECONDS = 60;
@@ -63,6 +67,7 @@ interface SolvedCache {
   keys: string[];
   solved: SolvedProblem[];
   totals: Totals;
+  todaySolved: { date: string; count: number };
   lastSync: number | null;
 }
 
@@ -72,6 +77,7 @@ const EMPTY_CACHE: SolvedCache = {
   keys: [],
   solved: [],
   totals: EMPTY_TOTALS,
+  todaySolved: { date: trackerDateKey(), count: 0 },
   lastSync: null,
 };
 
@@ -108,10 +114,17 @@ interface ExtensionState {
   legacyPending: QueuedSolve[];
 }
 
-/** Pending active time for one profile. Keyed by `${date}|${site}` so a plain
- * JSON object survives chrome.storage round-trips (a Map does not). */
+interface TimeBucket {
+  date: string;
+  site: TimeSite;
+  seconds: number;
+  problem?: ProblemTimeContext;
+}
+
+/** Pending active time for one profile. Composite buckets preserve the exact
+ * page identity that was active when the seconds accrued. */
 interface TimeProfileBuckets {
-  buckets: Record<string, number>;
+  buckets: Record<string, TimeBucket>;
   /** Last 2xx. Drives the "stale trickle" flush trigger. */
   lastFlushAt: number;
   /** Last POST attempt, successful or not. Drives the retry floor. */
@@ -123,6 +136,9 @@ interface TimeProfileBuckets {
    * machine), which a local-only sum could not. */
   todayDate?: string;
   todaySeconds?: number;
+  /** Last server-confirmed all-time problem totals, used only as an offline
+   * base to which still-pending local seconds are added. */
+  problemTotals?: Record<string, number>;
 }
 
 /** Keyed by profile id: time accrued under one API key must never be posted
@@ -177,7 +193,11 @@ function createProfile(base: string, key: string | null): ProfileState {
   return {
     apiBaseUrl: normalizeBase(base),
     apiKey: key,
-    cache: { ...EMPTY_CACHE, totals: { ...EMPTY_TOTALS } },
+    cache: {
+      ...EMPTY_CACHE,
+      totals: { ...EMPTY_TOTALS },
+      todaySolved: { ...EMPTY_CACHE.todaySolved },
+    },
     pending: [],
     deadLetters: [],
     resolveCache: {},
@@ -226,6 +246,10 @@ async function migrateState(): Promise<ExtensionState> {
     }
     existing.profiles = normalizedProfiles;
     for (const profile of Object.values(existing.profiles)) {
+      if (!profile.cache.todaySolved) {
+        profile.cache.todaySolved = { date: trackerDateKey(), count: 0 };
+        healed = true;
+      }
       profile.pending = profile.pending.map((item) => {
         if (item.id) return item;
         healed = true;
@@ -305,8 +329,31 @@ async function withTimeStore<T>(fn: (store: TimeStore) => T): Promise<T> {
   });
   await previous;
   try {
-    const stored = await chrome.storage.local.get(K_TIME);
-    const store = (stored[K_TIME] as TimeStore | undefined) ?? {};
+    const stored = await chrome.storage.local.get([K_TIME, K_TIME_LEGACY]);
+    let store = stored[K_TIME] as TimeStore | undefined;
+    if (!store) {
+      store = {};
+      const legacy = stored[K_TIME_LEGACY] as
+        | Record<string, { buckets?: Record<string, number>; lastFlushAt?: number; lastAttemptAt?: number; todayDate?: string; todaySeconds?: number }>
+        | undefined;
+      for (const [profileId, old] of Object.entries(legacy ?? {})) {
+        const buckets: Record<string, TimeBucket> = {};
+        for (const [key, seconds] of Object.entries(old.buckets ?? {})) {
+          const [date, siteValue] = key.split('|');
+          const site = siteValue as TimeSite;
+          if (!date || !TIME_SITES.includes(site) || !(seconds > 0)) continue;
+          buckets[`${date}|${site}|`] = { date, site, seconds };
+        }
+        store[profileId] = {
+          buckets,
+          lastFlushAt: old.lastFlushAt ?? 0,
+          lastAttemptAt: old.lastAttemptAt ?? 0,
+          todayDate: old.todayDate,
+          todaySeconds: old.todaySeconds,
+          problemTotals: {},
+        };
+      }
+    }
     const result = fn(store);
     await chrome.storage.local.set({ [K_TIME]: store });
     return result;
@@ -512,6 +559,7 @@ async function syncCache(): Promise<CachedState> {
       keys: solved.keys,
       solved: solved.solved,
       totals: solved.totals,
+      todaySolved: targetProfile.cache.todaySolved ?? { date: trackerDateKey(), count: 0 },
       lastSync: Date.now(),
     };
     await withState((state) => {
@@ -537,9 +585,14 @@ async function syncCache(): Promise<CachedState> {
 
 async function buildCachedState(): Promise<CachedState> {
   const profile = activeProfile(await readState());
+  const today = trackerDateKey();
   return {
     totals: profile.cache.totals,
     solved: profile.cache.solved,
+    todaySolved:
+      profile.cache.todaySolved?.date === today
+        ? profile.cache.todaySolved
+        : { date: today, count: 0 },
     pending: profile.pending.length,
     apiOk: profile.authState === 'ok',
     authState: profile.authState,
@@ -572,6 +625,11 @@ async function applySolveToCache(
     if (!profile) return;
     const cache = profile.cache;
     cache.totals = res.totals;
+    if (payload.detected !== 'backfill') {
+      const today = trackerDateKey();
+      if (cache.todaySolved?.date !== today) cache.todaySolved = { date: today, count: 0 };
+      cache.todaySolved.count += 1;
+    }
     const entry = res.entry;
     if (entry) {
     // Drop a client-side nc: alias when the server upgraded it to lc:.
@@ -598,12 +656,28 @@ async function applySolveToCache(
 // active time tracking
 // ---------------------------------------------------------------------------
 
-function timeBucketKey(date: string, site: TimeSite): string {
-  return `${date}|${site}`;
+const CANONICAL_KEY_RE = /^(lc|tuf|gfg):[a-z0-9][a-z0-9-]*$|^nc:[A-Za-z0-9][A-Za-z0-9-]*$/;
+
+function normalizeProblemContext(problem: ProblemTimeContext | undefined): ProblemTimeContext | undefined {
+  if (!problem || !CANONICAL_KEY_RE.test(problem.canonicalKey)) return undefined;
+  const title = typeof problem.title === 'string' ? problem.title.trim().slice(0, 300) : '';
+  const rawUrl = typeof problem.url === 'string' ? problem.url.trim().slice(0, 2048) : '';
+  if (!title || !rawUrl) return undefined;
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return undefined;
+  } catch {
+    return undefined;
+  }
+  return { canonicalKey: problem.canonicalKey, title, url: rawUrl };
+}
+
+function timeBucketKey(date: string, site: TimeSite, problem?: ProblemTimeContext): string {
+  return `${date}|${site}|${problem?.canonicalKey ?? ''}`;
 }
 
 function emptyTimeBuckets(): TimeProfileBuckets {
-  return { buckets: {}, lastFlushAt: 0, lastAttemptAt: 0 };
+  return { buckets: {}, lastFlushAt: 0, lastAttemptAt: 0, problemTotals: {} };
 }
 
 function timeBucketsFor(store: TimeStore, id: string): TimeProfileBuckets {
@@ -614,6 +688,7 @@ function timeBucketsFor(store: TimeStore, id: string): TimeProfileBuckets {
     if (typeof existing.lastFlushAt !== 'number') existing.lastFlushAt = 0;
     if (typeof existing.lastAttemptAt !== 'number') existing.lastAttemptAt = 0;
     if (!existing.buckets) existing.buckets = {};
+    if (!existing.problemTotals) existing.problemTotals = {};
     return existing;
   }
   const created = emptyTimeBuckets();
@@ -625,12 +700,12 @@ function timeBucketsFor(store: TimeStore, id: string): TimeProfileBuckets {
  * user must not be able to grow chrome.storage without limit. */
 function pruneTimeBuckets(entry: TimeProfileBuckets): void {
   const cutoff = trackerDateKey(new Date(Date.now() - TIME_RETAIN_DAYS * 86_400_000));
-  for (const [key, seconds] of Object.entries(entry.buckets)) {
+  for (const [key, bucket] of Object.entries(entry.buckets)) {
     // Day keys are YYYY-MM-DD, so a lexicographic compare is a date compare.
-    if (key.slice(0, key.indexOf('|')) < cutoff || !(seconds > 0)) {
+    if (bucket.date < cutoff || !(bucket.seconds > 0)) {
       delete entry.buckets[key];
-    } else if (seconds > TIME_BUCKET_MAX_SECONDS) {
-      entry.buckets[key] = TIME_BUCKET_MAX_SECONDS;
+    } else if (bucket.seconds > TIME_BUCKET_MAX_SECONDS) {
+      bucket.seconds = TIME_BUCKET_MAX_SECONDS;
     }
   }
 }
@@ -638,11 +713,15 @@ function pruneTimeBuckets(entry: TimeProfileBuckets): void {
 function timeSegments(entry: TimeProfileBuckets | undefined): TimeSegment[] {
   if (!entry) return [];
   const segments: TimeSegment[] = [];
-  for (const [key, seconds] of Object.entries(entry.buckets)) {
-    const separator = key.indexOf('|');
-    const site = key.slice(separator + 1) as TimeSite;
-    if (seconds > 0 && TIME_SITES.includes(site)) {
-      segments.push({ date: key.slice(0, separator), site, seconds });
+  for (const bucket of Object.values(entry.buckets)) {
+    if (bucket.seconds > 0 && TIME_SITES.includes(bucket.site)) {
+      segments.push({
+        date: bucket.date,
+        site: bucket.site,
+        seconds: bucket.seconds,
+        ...(bucket.problem ? { problem: bucket.problem } : {}),
+      });
+      if (segments.length >= 200) break;
     }
   }
   return segments;
@@ -651,7 +730,16 @@ function timeSegments(entry: TimeProfileBuckets | undefined): TimeSegment[] {
 function pendingTimeSeconds(entry: TimeProfileBuckets | undefined): number {
   if (!entry) return 0;
   let total = 0;
-  for (const seconds of Object.values(entry.buckets)) total += seconds;
+  for (const bucket of Object.values(entry.buckets)) total += bucket.seconds;
+  return total;
+}
+
+function pendingProblemSeconds(entry: TimeProfileBuckets | undefined, canonicalKey: string): number {
+  if (!entry) return 0;
+  let total = 0;
+  for (const bucket of Object.values(entry.buckets)) {
+    if (bucket.problem?.canonicalKey === canonicalKey) total += bucket.seconds;
+  }
   return total;
 }
 
@@ -694,9 +782,10 @@ function flushTime(targetProfileId?: string): Promise<void> {
       await withTimeStore((store) => {
         const entry = timeBucketsFor(store, start);
         for (const segment of segments) {
-          const key = timeBucketKey(segment.date, segment.site);
-          const remaining = (entry.buckets[key] ?? 0) - segment.seconds;
-          if (remaining > 0) entry.buckets[key] = remaining;
+          const key = timeBucketKey(segment.date, segment.site, segment.problem);
+          const bucket = entry.buckets[key];
+          const remaining = (bucket?.seconds ?? 0) - segment.seconds;
+          if (bucket && remaining > 0) bucket.seconds = remaining;
           else delete entry.buckets[key];
         }
         entry.lastFlushAt = Date.now();
@@ -738,8 +827,8 @@ async function handleGetTime(): Promise<TimeResult> {
     return await withTimeStore((store) => {
       const entry = timeBucketsFor(store, id);
       let pendingSeconds = 0;
-      for (const [key, seconds] of Object.entries(entry.buckets)) {
-        if (key.slice(0, key.indexOf('|')) === date) pendingSeconds += seconds;
+      for (const bucket of Object.values(entry.buckets)) {
+        if (bucket.date === date) pendingSeconds += bucket.seconds;
       }
       // A stamp from an earlier day says nothing about today's total.
       const synced = entry.todayDate === date;
@@ -752,7 +841,44 @@ async function handleGetTime(): Promise<TimeResult> {
   }
 }
 
-async function handleActivity(site: TimeSite, date: string, seconds: number): Promise<void> {
+async function handleProblemTime(canonicalKey: string): Promise<ProblemTimeResult> {
+  const state = await readState();
+  const id = state.activeProfileId;
+  const profile = state.profiles[id];
+  if (!profile) return { canonicalKey, totalSeconds: 0, pendingSeconds: 0, synced: false };
+
+  await flushTime(id);
+  let confirmed: number | undefined;
+  let synced = false;
+  try {
+    const response = await apiGetForProfile<ProblemTimeResponse>(
+      profile,
+      `/api/time?canonicalKey=${encodeURIComponent(canonicalKey)}`,
+    );
+    confirmed = Math.max(0, Math.floor(response.totalSeconds));
+    synced = true;
+    await withTimeStore((store) => {
+      const entry = timeBucketsFor(store, id);
+      entry.problemTotals![canonicalKey] = confirmed!;
+    });
+  } catch (error) {
+    console.warn('[dsa-tracker] problem time read failed', error);
+  }
+
+  return withTimeStore((store) => {
+    const entry = timeBucketsFor(store, id);
+    const pendingSeconds = pendingProblemSeconds(entry, canonicalKey);
+    const base = confirmed ?? entry.problemTotals?.[canonicalKey] ?? 0;
+    return { canonicalKey, totalSeconds: base + pendingSeconds, pendingSeconds, synced };
+  });
+}
+
+async function handleActivity(
+  site: TimeSite,
+  date: string,
+  seconds: number,
+  rawProblem?: ProblemTimeContext,
+): Promise<void> {
   try {
     // A content script is not a trusted input source; drop anything malformed
     // rather than letting it reach the API or poison a bucket key.
@@ -760,12 +886,16 @@ async function handleActivity(site: TimeSite, date: string, seconds: number): Pr
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
     const increment = Math.round(seconds);
     if (!Number.isFinite(increment) || increment <= 0) return;
+    const problem = normalizeProblemContext(rawProblem);
 
     const id = (await readState()).activeProfileId;
     const { pending, stale } = await withTimeStore((store) => {
       const entry = timeBucketsFor(store, id);
-      const key = timeBucketKey(date, site);
-      entry.buckets[key] = Math.min(TIME_BUCKET_MAX_SECONDS, (entry.buckets[key] ?? 0) + increment);
+      const key = timeBucketKey(date, site, problem);
+      const bucket = entry.buckets[key] ?? { date, site, seconds: 0, ...(problem ? { problem } : {}) };
+      bucket.seconds = Math.min(TIME_BUCKET_MAX_SECONDS, bucket.seconds + increment);
+      if (problem) bucket.problem = problem;
+      entry.buckets[key] = bucket;
       pruneTimeBuckets(entry);
       return {
         pending: pendingTimeSeconds(entry),
@@ -905,7 +1035,11 @@ async function handleGetStats(): Promise<StatsResult> {
   await syncCache();
   try {
     const stats = await apiGet<StatsResponse>('/api/stats');
-    await setAuthState('ok');
+    await withState((state) => {
+      const profile = activeProfile(state);
+      profile.authState = 'ok';
+      if (stats.todaySolved) profile.cache.todaySolved = stats.todaySolved;
+    });
     return { ok: true, stats, cache: await buildCachedState() };
   } catch (error) {
     await setAuthState(
@@ -921,17 +1055,27 @@ async function handleGetStats(): Promise<StatsResult> {
 
 async function handleGetActiveProblem(): Promise<ActiveProblemResult> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (tab?.id === undefined) return { payload: null, solved: false, entry: null };
+  if (tab?.id === undefined) {
+    return { payload: null, solved: false, entry: null, problemTime: null };
+  }
 
   try {
+    // Opening the popup blurs the practice page. Ask its meter to finish
+    // storing the sub-threshold tail before reading the all-time total.
+    try {
+      await chrome.tabs.sendMessage(tab.id, { type: 'FLUSH_ACTIVITY' } satisfies ExtMessage);
+    } catch {
+      // A supported host without the activity script is simply not a problem.
+    }
     const payload = (await chrome.tabs.sendMessage(tab.id, {
       type: 'GET_PAGE_PROBLEM',
     } satisfies PageProblemMessage)) as SolveRequest | null | undefined;
-    if (!payload) return { payload: null, solved: false, entry: null };
+    if (!payload) return { payload: null, solved: false, entry: null, problemTime: null };
     const status = await handleCheckProblem(payload.canonicalKey);
-    return { payload, ...status };
+    const problemTime = await handleProblemTime(payload.canonicalKey);
+    return { payload, solved: status.solved, entry: status.entry, problemTime };
   } catch {
-    return { payload: null, solved: false, entry: null };
+    return { payload: null, solved: false, entry: null, problemTime: null };
   }
 }
 
@@ -986,8 +1130,57 @@ async function notifyIdentityChanged(): Promise<void> {
   );
 }
 
+/** Finish every content script's sub-threshold tail before changing the active
+ * credential profile. Otherwise seconds measured under one key could arrive
+ * after the switch and be stored under another. */
+async function flushActivityTails(): Promise<void> {
+  const tabs = await chrome.tabs.query({
+    url: [
+      '*://leetcode.com/*',
+      '*://neetcode.io/*',
+      '*://takeuforward.org/*',
+      '*://*.geeksforgeeks.org/*',
+      '*://geeksforgeeks.org/*',
+    ],
+  });
+  await Promise.all(
+    tabs
+      .filter((tab): tab is chrome.tabs.Tab & { id: number } => tab.id !== undefined)
+      .map((tab) =>
+        chrome.tabs
+          .sendMessage(tab.id, { type: 'FLUSH_ACTIVITY' } satisfies ExtMessage)
+          .catch(() => undefined),
+      ),
+  );
+}
+
+/** Anonymous time has no owner yet. Match the solve-queue migration posture by
+ * adopting it into the first configured key, while authenticated profiles
+ * always remain isolated from one another. */
+async function adoptAnonymousTime(fromId: string, toId: string): Promise<void> {
+  if (fromId === toId) return;
+  await withTimeStore((store) => {
+    const source = store[fromId];
+    if (!source) return;
+    const target = timeBucketsFor(store, toId);
+    for (const [key, bucket] of Object.entries(source.buckets)) {
+      const existing = target.buckets[key];
+      target.buckets[key] = existing
+        ? {
+            ...bucket,
+            seconds: Math.min(TIME_BUCKET_MAX_SECONDS, existing.seconds + bucket.seconds),
+          }
+        : bucket;
+    }
+    delete store[fromId];
+  });
+}
+
 async function handleSetApiBase(baseUrl: string): Promise<CachedState> {
-  const current = activeProfile(await readState());
+  await flushActivityTails();
+  const before = await readState();
+  const current = activeProfile(before);
+  if (current.apiKey) await flushTime(before.activeProfileId);
   const next = await activateProfile(baseUrl, current.apiKey);
   // A base/key profile has its own cache and queue. Sync is intentionally
   // after the switch so a failed request cannot contaminate the old identity.
@@ -996,16 +1189,25 @@ async function handleSetApiBase(baseUrl: string): Promise<CachedState> {
 }
 
 async function handleSetApiKey(key: string): Promise<CachedState> {
-  const current = activeProfile(await readState());
   const trimmed = key.trim();
   if (!trimmed) return handleClearApiKey();
+  await flushActivityTails();
+  const before = await readState();
+  const current = activeProfile(before);
+  if (current.apiKey) await flushTime(before.activeProfileId);
+  const nextId = await profileId(current.apiBaseUrl, trimmed);
   const next = await activateProfile(current.apiBaseUrl, trimmed);
+  if (!current.apiKey) await adoptAnonymousTime(before.activeProfileId, nextId);
   await notifyIdentityChanged();
+  await flushTime(nextId);
   return syncCache().catch(() => next);
 }
 
 async function handleClearApiKey(): Promise<CachedState> {
-  const current = activeProfile(await readState());
+  await flushActivityTails();
+  const before = await readState();
+  const current = activeProfile(before);
+  if (current.apiKey) await flushTime(before.activeProfileId);
   const state = await activateProfile(current.apiBaseUrl, null, true);
   await notifyIdentityChanged();
   return state;
@@ -1381,7 +1583,24 @@ async function handleRunNcImport(): Promise<BackfillRunResult> {
 // message router
 // ---------------------------------------------------------------------------
 
-function route(msg: ExtMessage): Promise<unknown> | undefined {
+async function relayPageProblem(
+  sender: chrome.runtime.MessageSender,
+  rawProblem: ProblemTimeContext | null,
+): Promise<void> {
+  if (sender.tab?.id === undefined) return;
+  const problem = rawProblem === null ? null : normalizeProblemContext(rawProblem) ?? null;
+  try {
+    await chrome.tabs.sendMessage(sender.tab.id, {
+      type: 'PAGE_PROBLEM_CHANGED',
+      problem,
+    } satisfies ExtMessage);
+  } catch {
+    // The activity content script may be between SPA documents. Its next page
+    // load starts with no context, which is safer than retaining the old key.
+  }
+}
+
+function route(msg: ExtMessage, sender: chrome.runtime.MessageSender): Promise<unknown> | undefined {
   switch (msg.type) {
     case 'CHECK_PROBLEM':
       return handleCheckProblem(msg.canonicalKey);
@@ -1412,17 +1631,21 @@ function route(msg: ExtMessage): Promise<unknown> | undefined {
     case 'RUN_NC_IMPORT':
       return handleRunNcImport();
     case 'ACTIVITY':
-      return handleActivity(msg.site, msg.date, msg.seconds);
+      return handleActivity(msg.site, msg.date, msg.seconds, msg.problem);
+    case 'SET_PAGE_PROBLEM':
+      return relayPageProblem(sender, msg.problem);
     case 'GET_TIME':
       return handleGetTime();
+    case 'PAGE_PROBLEM_CHANGED':
+    case 'FLUSH_ACTIVITY':
     case 'ROUTE_CHANGED':
       return undefined;
   }
 }
 
 export default defineBackground(() => {
-  chrome.runtime.onMessage.addListener((msg: ExtMessage, _sender, sendResponse) => {
-    const result = route(msg);
+  chrome.runtime.onMessage.addListener((msg: ExtMessage, sender, sendResponse) => {
+    const result = route(msg, sender);
     if (!result) return false;
     result.then(sendResponse).catch((e) => {
       console.error('[dsa-tracker] message handler failed', msg.type, e);

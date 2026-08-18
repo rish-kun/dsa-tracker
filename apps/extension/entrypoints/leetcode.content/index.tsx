@@ -44,7 +44,9 @@ export default defineContentScript({
   // The separately manifest-registered MAIN-world interceptor relays submit
   // and verdict signals through window.postMessage. It intentionally remains
   // unchanged: only the isolated-world lifecycle is shared with other sites.
-  matches: ['*://leetcode.com/problems/*'],
+  // Site-wide so an SPA transition from the problem list into /problems/* can
+  // publish problem-time context without requiring a document reload.
+  matches: ['*://leetcode.com/*'],
   runAt: 'document_start',
   async main(ctx: ContentScriptContext) {
     const runner = createSiteAdapterRunner(ctx, {

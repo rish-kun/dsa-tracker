@@ -5,6 +5,7 @@ import { publicErrorMessage } from '@/lib/api-error';
 
 const EMPTY_STATS: StatsResponse = {
   totals: { lcUnique: 0, other: 0 },
+  todaySolved: { date: '', count: 0 },
   byDifficulty: { Easy: 0, Medium: 0, Hard: 0 },
   bySource: {},
   overTime: [],
@@ -14,6 +15,7 @@ const EMPTY_STATS: StatsResponse = {
 /** Shape of the single row returned by the aggregate query below. */
 type StatsRow = {
   totals: StatsResponse['totals'];
+  today_solved: StatsResponse['todaySolved'];
   by_difficulty: StatsResponse['byDifficulty'];
   by_source: StatsResponse['bySource'];
   over_time: StatsResponse['overTime'];
@@ -43,7 +45,10 @@ type StatsRow = {
  */
 export async function loadStats(userId: string, recentLimit: number): Promise<StatsResponse> {
   const rows = await db.execute<StatsRow>(sql`
-    with agg as (
+    with bounds as (
+      select (now() at time zone 'Asia/Kolkata')::date as today
+    ),
+    agg as (
       select
         count(*) filter (where canonical_key like 'lc:%')::int as lc_unique,
         count(*) filter (where canonical_key not like 'lc:%')::int as other,
@@ -92,12 +97,23 @@ export async function loadStats(userId: string, recentLimit: number): Promise<St
       where s.user_id = ${userId}
       order by s.first_solved_at desc
       limit ${recentLimit}
+    ),
+    today_solved as (
+      select count(*)::int as n
+      from ${solveEvents}, bounds
+      where user_id = ${userId}
+        and detected <> 'backfill'
+        and (created_at at time zone 'Asia/Kolkata')::date = bounds.today
     )
     select
       (select json_build_object('lcUnique', lc_unique, 'other', other) from agg)
         as totals,
       (select json_build_object('Easy', easy, 'Medium', medium, 'Hard', hard) from agg)
         as by_difficulty,
+      (select json_build_object(
+        'date', to_char(bounds.today, 'YYYY-MM-DD'),
+        'count', today_solved.n
+      ) from bounds cross join today_solved) as today_solved,
       coalesce(
         (select json_object_agg(first_source, n) from by_source),
         '{}'::json
@@ -128,6 +144,7 @@ export async function loadStats(userId: string, recentLimit: number): Promise<St
 
   return {
     totals: row.totals,
+    todaySolved: row.today_solved,
     byDifficulty: row.by_difficulty,
     bySource: row.by_source,
     overTime: row.over_time,

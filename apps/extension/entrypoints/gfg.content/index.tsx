@@ -21,12 +21,12 @@ function problemTitle(): string {
 }
 
 export default defineContentScript({
-  // GFG has moved problem pages between its main site and the legacy practice
-  // host. Both expose a /problems/<slug>/ canonical route.
+  // Site-wide on each GFG host so SPA entry into /problems/<slug>/ can publish
+  // problem-time context without requiring a document reload.
   matches: [
-    '*://geeksforgeeks.org/problems/*',
-    '*://www.geeksforgeeks.org/problems/*',
-    '*://practice.geeksforgeeks.org/problems/*',
+    '*://geeksforgeeks.org/*',
+    '*://www.geeksforgeeks.org/*',
+    '*://practice.geeksforgeeks.org/*',
   ],
   runAt: 'document_idle',
   async main(ctx: ContentScriptContext) {

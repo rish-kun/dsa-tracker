@@ -1144,6 +1144,141 @@
     border-radius: 10px;
   }
 
+  /* ------------------------------------------------------------------ */
+  /* Problem time (/time)                                               */
+  /* ------------------------------------------------------------------ */
+
+  .time-page-header {
+    flex-direction: row;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 20px;
+  }
+
+  .time-page-total {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 3px;
+    flex: 0 0 auto;
+  }
+
+  .time-page-total strong {
+    font-family: var(--font-mono);
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.025em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .time-source-filter select {
+    min-height: 37px;
+    color: var(--pt-text);
+    background: var(--pt-surface);
+    border: 1px solid var(--pt-border);
+    border-radius: 6px;
+    padding: 7px 32px 7px 10px;
+    font: inherit;
+    font-size: 13px;
+  }
+
+  .time-source-filter select:focus {
+    outline: 2px solid var(--pt-blue-ring);
+    outline-offset: -1px;
+  }
+
+  .problem-time-table {
+    min-width: 760px;
+  }
+
+  .problem-time-table .cell-problem {
+    min-width: 260px;
+  }
+
+  a.cell-title {
+    text-decoration: none;
+  }
+
+  a.cell-title:hover {
+    color: var(--pt-blue);
+  }
+
+  .problem-time-key {
+    display: block;
+    margin-top: 3px;
+    color: var(--pt-text-3);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+  }
+
+  .cell-duration {
+    color: var(--pt-text-2);
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .cell-duration-total {
+    color: var(--pt-text);
+    font-weight: 600;
+  }
+
+  .table-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-top: 14px;
+    color: var(--pt-text-3);
+    font-size: 12.5px;
+  }
+
+  .table-pagination button {
+    min-height: 34px;
+    color: var(--pt-text-2);
+    background: var(--pt-surface);
+    border: 1px solid var(--pt-border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    cursor: pointer;
+  }
+
+  .table-pagination button:hover:not(:disabled) {
+    color: var(--pt-text);
+    background: var(--pt-surface-raised);
+    border-color: var(--pt-border-2);
+  }
+
+  .table-pagination button:disabled {
+    cursor: default;
+    opacity: 0.45;
+  }
+
+  @media (max-width: 640px) {
+    .time-page-header {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+
+    .time-page-total {
+      align-items: flex-start;
+    }
+
+    .time-source-filter,
+    .time-source-filter select {
+      width: 100%;
+    }
+
+    .time-source-filter select {
+      min-height: 44px;
+    }
+
+    .table-pagination {
+      justify-content: space-between;
+    }
+  }
+
   .problems-table {
     width: 100%;
     border-collapse: collapse;

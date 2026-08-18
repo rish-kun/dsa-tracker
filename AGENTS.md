@@ -163,11 +163,13 @@ Edits go through `saveTrackAction` (`app/problems/actions.ts`) →
 the catalog in one query and refuses to save unknown lines. Going multi-track
 means new tables, not new columns. Design: `docs/plans/2026-08-15-tracks-and-sequel-next-design.md`.
 
-**Time tracking** (`time_daily`, PK `(user_id, date, site)`; migration `0008`,
-RLS on): active-tab seconds on the four practice sites, bucketed per tracker
-day. The extension is the only thing that can see tab focus, so it measures
-and POSTs **increments** to `/api/time`; `src/lib/time-tracking.ts` is the only
-writer. Details in **Time tracking** below.
+**Time tracking** uses `time_daily` (PK `(user_id, date, site)`, migration
+`0008`) for every supported-site second and `time_problem_daily` (PK
+`(user_id, date, canonical_key)`, migration `0009`) for the subset attributed
+to a resolved problem. Both have RLS on. The extension is the only thing that
+can see tab focus, so it measures and POSTs **increments** to `/api/time`;
+`src/lib/time-tracking.ts` is the only writer. Details in **Time tracking**
+below.
 
 The LeetCode history backfill runs `chrome.scripting.executeScript` inside a
 leetcode.com tab (first-party session cookies apply there) paginating GraphQL
@@ -212,8 +214,9 @@ re-implement any of it inline in a route, page or action:
   `apps/web/.env.example`.
 - RLS is enabled on `solved_problems`, `solve_events`, `plan_checks`,
   `plan_days`, `plan_counters` by `drizzle/0006_enable_user_table_rls.sql`, on
-  `user_tracks` by `drizzle/0007_user_tracks.sql`, and on `time_daily` by
-  `drizzle/0008_time_daily.sql` (no
+  `user_tracks` by `drizzle/0007_user_tracks.sql`, on `time_daily` by
+  `drizzle/0008_time_daily.sql`, and on `time_problem_daily` by
+  `drizzle/0009_time_problem_daily.sql` (no
   policies — the server connects as the DB role, so direct Data API access is
   denied). **Any new user-owned table must get `user_id` + RLS the same way.**
 
@@ -319,8 +322,10 @@ time.
   `dsa_extra` integers default 0, `dsa_hist` / `dsa_extra_hist` jsonb default
   `'[]'` (undo stacks of raw increments).
 
-**All nine migrations (`0000_charming_red_hulk` … `0008_time_daily`) are
-applied to the Supabase database** (verified 2026-08-16). Verify rather than
+**The first nine migrations (`0000_charming_red_hulk` … `0008_time_daily`) are
+applied to the Supabase database** (verified 2026-08-16). Migration
+`0009_time_problem_daily` exists locally but was deliberately not applied as
+part of its implementation. Verify rather than
 assume when it matters — `select table_name from information_schema.tables
 where table_schema='public'` is the ground truth, and
 `drizzle.__drizzle_migrations` holds the applied count. This claim has been
@@ -331,8 +336,8 @@ missing table shows up only as a 500 on write. The defensive `/plan` read
 fallbacks still matter for builds and temporary DB outages, but writes are
 expected to work without further migration setup.
 
-**Trap: `apps/web/drizzle/meta/` has snapshots for `0000`–`0003`, `0006`,
-`0007` and `0008` but NOT `0004`/`0005`** — those two were hand-authored
+**Trap: `apps/web/drizzle/meta/` has snapshots for `0000`–`0003`, `0006`–
+`0009` but NOT `0004`/`0005`** — those two were hand-authored
 (`0004_user_ownership`, `0005_finalize_user_ownership`) rather than generated,
 as were the `0007`/`0008` snapshot extensions. A future
 `drizzle-kit generate` diffs against the snapshot chain, so it can emit a
@@ -440,8 +445,16 @@ the same day and site. At-least-once: the extension clears a batch only after a
 2xx, and on success subtracts *exactly the segments it sent* rather than
 clearing the map, so `ACTIVITY` messages landing mid-POST are not swallowed.
 
+An increment may carry optional `{canonicalKey,title,url}` problem context.
+The server always applies the valid site total and, when that context is valid,
+atomically adds the same seconds to `time_problem_daily`. Context comes from
+the shared site adapters, is cleared before SPA re-detection, and is bucketed
+at accrual time so a navigation cannot assign problem A's tail to problem B.
+`GET /api/time?canonicalKey=...` returns the authenticated all-time total used
+by the popup; `/time` reads the same rows directly for its history table.
+
 **Service worker state lives under its own storage key** (`K_TIME =
-'timeBucketsV1'`), not on `ExtensionState` — so time tracking never drags the
+`'timeBucketsV2'`; v1 is migrated losslessly), not on `ExtensionState` — so time tracking never drags the
 solve queue's `STORAGE_VERSION` migration path along. `withTimeStore` chains on
 the *same* `storageSerial` as `withState`, so never call `withState`/`readState`
 inside its callback (it awaits the lock it is holding — deadlock). Buckets are
@@ -457,7 +470,7 @@ write failure 5xxes and the extension retains and retries.
 only *un-flushed* seconds, so showing them alone would drop the figure to zero
 the moment a flush succeeded and could never include another device's time. The
 service worker instead caches `todaySeconds` off each flush response (already on
-`TimeResponse` — that is why there is no `GET /api/time`), stamped with the day
+`TimeResponse`), stamped with the day
 it describes, and `GET_TIME` returns **cached server total + today's pending**.
 A stamp from an earlier day is discarded, and an unsynced day is labelled
 `today · local`. `formatDuration` lives in `packages/shared` so the popup tile

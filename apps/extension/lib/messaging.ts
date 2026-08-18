@@ -32,6 +32,9 @@ interface ResponseMap {
   GET_STATS: StatsResult;
   ROUTE_CHANGED: void;
   ACTIVITY: void;
+  SET_PAGE_PROBLEM: void;
+  PAGE_PROBLEM_CHANGED: void;
+  FLUSH_ACTIVITY: void;
   GET_TIME: TimeResult;
   GET_CACHE: CachedState;
   REFRESH_CACHE: CachedState;

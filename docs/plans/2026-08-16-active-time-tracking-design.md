@@ -170,3 +170,5 @@ cannot drift into formatting the same number differently.
   reconstructed; the panel's window fills in from first use.
 - **No per-site split in the popup.** `TimeResponse` carries only the day
   total; the dashboard panel is where the per-site breakdown lives.
+- Per-problem attribution and the `/time` history page were added later; see
+  `2026-08-18-problem-wise-time-design.md`.

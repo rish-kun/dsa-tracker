@@ -147,3 +147,22 @@ export const timeDaily = pgTable('time_daily', {
   seconds: integer('seconds').notNull().default(0),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [primaryKey({ columns: [t.userId, t.date, t.site] })]);
+
+/**
+ * Per-day active time attributed to a canonical problem. Unlike
+ * `solved_problems`, rows may exist before the problem is solved, so the
+ * display metadata is stored as a snapshot instead of referencing that table.
+ */
+export const timeProblemDaily = pgTable('time_problem_daily', {
+  userId: text('user_id').notNull(),
+  date: text('date').notNull(),
+  canonicalKey: text('canonical_key').notNull(),
+  title: text('title').notNull(),
+  source: text('source').$type<TimeSite>().notNull(),
+  url: text('url'),
+  seconds: integer('seconds').notNull().default(0),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  primaryKey({ columns: [t.userId, t.date, t.canonicalKey] }),
+  index('time_problem_user_key_idx').on(t.userId, t.canonicalKey),
+]);

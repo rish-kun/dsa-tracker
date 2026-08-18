@@ -158,12 +158,24 @@ export type TimeSite = Exclude<Source, 'backfill'>;
 
 export const TIME_SITES: TimeSite[] = ['leetcode', 'neetcode', 'tuf', 'gfg'];
 
+/** Canonical problem identity attached to an active-time increment. The site
+ * remains on TimeSegment because one canonical problem may be practised on
+ * more than one site. */
+export interface ProblemTimeContext {
+  canonicalKey: string;
+  title: string;
+  url: string;
+}
+
 /** Active seconds accumulated on one site during one tracker day. */
 export interface TimeSegment {
   /** Tracker-day key from `trackerDateKey`. */
   date: string;
   site: TimeSite;
   seconds: number;
+  /** Absent on lists, editorials, or while authoritative resolution is not
+   * available. The site increment remains valid in all of those cases. */
+  problem?: ProblemTimeContext;
 }
 
 /**
@@ -182,6 +194,20 @@ export interface TimeResponse {
   applied: number;
   /** Total active seconds today, after applying this batch. */
   todaySeconds: number;
+}
+
+/** Authenticated GET /api/time?canonicalKey=... response. */
+export interface ProblemTimeResponse {
+  canonicalKey: string;
+  totalSeconds: number;
+}
+
+/** All-time problem duration shown in the extension popup. */
+export interface ProblemTimeResult extends ProblemTimeResponse {
+  /** Seconds not yet accepted by the server. Included in totalSeconds. */
+  pendingSeconds: number;
+  /** False when totalSeconds is based only on cached/local state. */
+  synced: boolean;
 }
 
 /** One day's tracked time, per site plus the day's total. */
@@ -216,9 +242,21 @@ export function formatDuration(seconds: number): string {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
+/** Stopwatch-style all-time duration. Hours intentionally do not wrap at 24. */
+export function formatStopwatchDuration(seconds: number): string {
+  const whole = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(whole / 3600);
+  const minutes = Math.floor((whole % 3600) / 60);
+  const secs = whole % 60;
+  return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+}
+
 /** GET /api/stats response. */
 export interface StatsResponse {
   totals: Totals;
+  /** Every non-backfill solve event in the current tracker day, including
+   * repeats. The date stamp prevents a cached count crossing midnight. */
+  todaySolved: { date: string; count: number };
   byDifficulty: Record<Difficulty, number>;
   bySource: Record<string, number>;
   /** ISO date (yyyy-mm-dd) → count of first-solves that day. */
@@ -236,7 +274,13 @@ export type ExtMessage =
   | { type: 'ROUTE_CHANGED' }
   /** Active-tab time measured by the activity content script since its last
    * report. Fire-and-forget: the service worker accumulates and flushes. */
-  | { type: 'ACTIVITY'; site: TimeSite; date: string; seconds: number }
+  | { type: 'ACTIVITY'; site: TimeSite; date: string; seconds: number; problem?: ProblemTimeContext }
+  /** Resolved page identity published independently of solve-banner state. */
+  | { type: 'SET_PAGE_PROBLEM'; problem: ProblemTimeContext | null }
+  /** Service worker relay consumed by the site-wide activity meter. */
+  | { type: 'PAGE_PROBLEM_CHANGED'; problem: ProblemTimeContext | null }
+  /** Force the page meter to report its sub-threshold tail before a popup read. */
+  | { type: 'FLUSH_ACTIVITY' }
   // popup -> service worker
   /** Today's tracked time for the popup. Flushes first so the figure is fresh. */
   | { type: 'GET_TIME' }
@@ -273,6 +317,8 @@ export interface RejectedQueueItem {
 export interface CachedState {
   totals: Totals;
   solved: SolvedProblem[];
+  /** Last successful GET /api/stats value, guarded by its tracker-day stamp. */
+  todaySolved: { date: string; count: number };
   /** Number of queued solves waiting for the API to come back. */
   pending: number;
   /** Whether the last API contact succeeded. */
@@ -303,6 +349,7 @@ export interface ActiveProblemResult {
   payload: SolveRequest | null;
   solved: boolean;
   entry: SolvedProblem | null;
+  problemTime: ProblemTimeResult | null;
 }
 
 /** Message sent directly from the service worker to a site's content script. */

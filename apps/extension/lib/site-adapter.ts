@@ -1,4 +1,10 @@
-import type { PageProblemMessage, SolveRequest, Totals } from '@dsa-tracker/shared';
+import type {
+  ExtMessage,
+  PageProblemMessage,
+  ProblemTimeContext,
+  SolveRequest,
+  Totals,
+} from '@dsa-tracker/shared';
 import type { ContentScriptContext } from 'wxt/utils/content-script-context';
 import { createBanner, type BannerHandle } from '../components/Banner';
 import { sendMessage, type MarkSolvedResult } from './messaging';
@@ -61,8 +67,33 @@ export function createSiteAdapterRunner(
 ): SiteAdapterRunner {
   let banner: BannerHandle | null = null;
   let currentKey: string | null = null;
+  let publishedProblemSignature: string | undefined;
   let run = 0;
   let debounce: ReturnType<typeof setTimeout> | undefined;
+
+  function publishProblem(payload: SolveRequest | null): void {
+    const problem = payload
+      ? {
+          canonicalKey: payload.canonicalKey,
+          title: payload.title,
+          url: payload.url,
+        }
+      : null;
+    const signature = problem
+      ? `${problem.canonicalKey}\u0000${problem.title}\u0000${problem.url}`
+      : '';
+    if (signature === publishedProblemSignature) return;
+    publishedProblemSignature = signature;
+    // The service worker relays this only to the activity content script in
+    // the sender's tab. Page JavaScript never sees or controls the context.
+    void chrome.runtime
+      .sendMessage({ type: 'SET_PAGE_PROBLEM', problem } satisfies ExtMessage)
+      .catch(() => {
+        // Time attribution is decoration and must never affect solve UI.
+        // Permit the next check to retry if the worker was being restarted.
+        if (publishedProblemSignature === signature) publishedProblemSignature = undefined;
+      });
+  }
 
   async function removeBanner(): Promise<void> {
     run += 1;
@@ -138,34 +169,46 @@ export function createSiteAdapterRunner(
   async function check(): Promise<void> {
     const checkRun = ++run;
     if (adapter.isProblemPage && !adapter.isProblemPage()) {
+      publishProblem(null);
       await removeBanner();
       return;
     }
 
-    // Manual adapters often need the authenticated catalog resolver before
-    // they can construct a canonical key. Check auth first so a missing or
-    // revoked key still produces useful UI instead of looking like "not a
-    // problem page" when resolution returns unavailable.
+    // Detection runs alongside the cheap cache read. Deterministic identities
+    // such as LeetCode can therefore publish problem-time context even before
+    // an API key is configured, while resolver-dependent sites safely return
+    // null during an outage instead of inventing a fallback key.
+    let detectionFailed = false;
+    const detection = adapter.detect().catch(() => {
+      detectionFailed = true;
+      return null;
+    });
     const cached = await sendMessage({ type: 'GET_CACHE' });
     if (!isCurrent(checkRun)) return;
     if (needsAuth(cached)) {
+      void detection.then((payload) => {
+        if (isCurrent(checkRun)) publishProblem(payload);
+      });
       await showNeedsAuth(checkRun, cached.authState);
       return;
     }
 
-    let payload: SolveRequest | null;
-    try {
-      payload = await adapter.detect();
-    } catch {
+    const payload = await detection;
+    if (detectionFailed) {
       // Detection failures should be invisible rather than leaving a stale CTA.
-      if (isCurrent(checkRun)) await removeBanner();
+      if (isCurrent(checkRun)) {
+        publishProblem(null);
+        await removeBanner();
+      }
       return;
     }
     if (!isCurrent(checkRun)) return;
     if (!payload) {
+      publishProblem(null);
       await removeBanner();
       return;
     }
+    publishProblem(payload);
 
     // Avoid remounting on incidental DOM mutations for the same active problem.
     if (payload.canonicalKey === currentKey && banner) return;
@@ -240,12 +283,16 @@ export function createSiteAdapterRunner(
         return true;
       }
       if (msg?.type === 'ROUTE_CHANGED' || msg?.type === 'AUTH_PROFILE_CHANGED') {
+        // Clear synchronously so a slow resolver cannot attribute the new
+        // route's next tick to the problem that was just left.
+        publishProblem(null);
         void removeBanner();
         scheduleCheck();
       }
       return false;
     });
     window.addEventListener('popstate', () => {
+      publishProblem(null);
       void removeBanner();
       scheduleCheck();
     });
